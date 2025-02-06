@@ -26,7 +26,7 @@ def query_gemini(user_query):
         print("Gemini API error:", e)
         return None
 
-# def query_deepseek(query_text):
+
     """
     Queries the Deepseek API using an HTTP POST request.
     """
@@ -59,19 +59,14 @@ def handle_query():
     if not user_query:
         return jsonify({"error": "No query provided"}), 400
 
-    # Use Gemini to generate a refined version of the query or a summary.
+    # Use Gemini to generate a response.
     gemini_response = query_gemini(user_query)
     if gemini_response is None:
         return jsonify({"error": "Error processing query with Gemini"}), 500
 
-    # Use the refined query to retrieve relevant search results from Deepseek.
-    search_results = gemini_response
-
-    # Combine the results and send back to the frontend.
     final_response = {
         "query": user_query,
-        "refined_query": gemini_response,
-        "results": search_results
+        "response": gemini_response
     }
 
     return jsonify(final_response)
