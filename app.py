@@ -4,32 +4,40 @@ from flask_cors import CORS
 import requests
 import config
 
-app = Flask(__name__)
-CORS(app)  # Allow cross-origin if needed
+# Import the Gemini client from Google’s generative AI library
+import genai
 
-# Helper function to query Gemini
+app = Flask(__name__)
+CORS(app)
+
 def query_gemini(user_query):
-    headers = {"Authorization": f"Bearer {config.GEMINI_API_KEY}",
-               "Content-Type": "application/json"}
-    payload = {
-        "prompt": user_query,
-        "max_tokens": 150,
-        "temperature": 0.7
-    }
+    """
+    Uses Google's genai client to generate content with the Gemini model.
+    """
     try:
-        response = requests.post(config.GEMINI_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        # Assume the API returns a field 'generated_text'
-        return data.get("generated_text", "")
-    except requests.RequestException as e:
+        # Create a client instance with your API key
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        
+        # Generate content using the Gemini model.
+        # You can adjust parameters like model and prompt contents as needed.
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",  # or whichever Gemini model you want to use
+            contents=user_query
+        )
+        # Assume the response object has a `.text` attribute with the generated output
+        return response.text
+    except Exception as e:
         print("Gemini API error:", e)
         return None
 
-# Helper function to query Deepseek
 def query_deepseek(query_text):
-    headers = {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
-               "Content-Type": "application/json"}
+    """
+    Queries the Deepseek API using an HTTP POST request.
+    """
+    headers = {
+        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "query": query_text,
         "limit": 5  # Return top 5 results
@@ -55,15 +63,15 @@ def handle_query():
     if not user_query:
         return jsonify({"error": "No query provided"}), 400
 
-    # Step 1: Process with Gemini (e.g., to refine the query or produce a summary)
+    # Use Gemini to generate a refined version of the query or a summary.
     gemini_response = query_gemini(user_query)
     if gemini_response is None:
         return jsonify({"error": "Error processing query with Gemini"}), 500
 
-    # Step 2: Use the (refined) query to search Deepseek
+    # Use the refined query to retrieve relevant search results from Deepseek.
     search_results = query_deepseek(gemini_response)
 
-    # Compose final response
+    # Combine the results and send back to the frontend.
     final_response = {
         "query": user_query,
         "refined_query": gemini_response,
