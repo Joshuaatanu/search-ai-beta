@@ -5,8 +5,7 @@ import requests
 import config
 
 # Import the Gemini client from Google’s generative AI library
-import genai
-
+import google.generativeai as genai
 app = Flask(__name__)
 CORS(app)
 
@@ -16,21 +15,18 @@ def query_gemini(user_query):
     """
     try:
         # Create a client instance with your API key
-        client = genai.Client(api_key=config.GEMINI_API_KEY)
-        
+        genai.configure(api_key=config.GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
         # Generate content using the Gemini model.
         # You can adjust parameters like model and prompt contents as needed.
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",  # or whichever Gemini model you want to use
-            contents=user_query
-        )
+        response = model.generate_content(user_query)
         # Assume the response object has a `.text` attribute with the generated output
         return response.text
     except Exception as e:
         print("Gemini API error:", e)
         return None
 
-def query_deepseek(query_text):
+# def query_deepseek(query_text):
     """
     Queries the Deepseek API using an HTTP POST request.
     """
@@ -69,7 +65,7 @@ def handle_query():
         return jsonify({"error": "Error processing query with Gemini"}), 500
 
     # Use the refined query to retrieve relevant search results from Deepseek.
-    search_results = query_deepseek(gemini_response)
+    search_results = gemini_response
 
     # Combine the results and send back to the frontend.
     final_response = {

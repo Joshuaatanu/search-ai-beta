@@ -25,7 +25,6 @@ document.getElementById('queryForm').addEventListener('submit', async (e) => {
             if (data.results.length) {
                 html += '<ul>';
                 data.results.forEach(result => {
-                    // Assuming each result has a title, snippet, and citation URL
                     html += `<li>
                       <h3>${result.title || "Result"}</h3>
                       <p>${result.snippet || ""}</p>
