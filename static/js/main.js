@@ -18,22 +18,13 @@ document.getElementById('queryForm').addEventListener('submit', async (e) => {
         if (data.error) {
             responseContainer.innerHTML = `<p>Error: ${data.error}</p>`;
         } else {
-            // Display the refined query and search results
+            // Build the HTML output using the new structure
             let html = `<h2>Your query:</h2><p>${data.query}</p>`;
-            html += `<h2>Refined Query (Gemini):</h2><p>${data.refined_query}</p>`;
-            html += `<h2>Search Results (Deepseek):</h2>`;
-            if (data.results.length) {
-                html += '<ul>';
-                data.results.forEach(result => {
-                    html += `<li>
-                      <h3>${result.title || "Result"}</h3>
-                      <p>${result.snippet || ""}</p>
-                      ${result.citation ? `<a href="${result.citation}" target="_blank">Citation</a>` : ""}
-                     </li>`;
-                });
-                html += '</ul>';
+            html += `<h2>Response from Gemini:</h2>`;
+            if (data.response) {
+                html += `<p>${data.response}</p>`;
             } else {
-                html += "<p>No results found.</p>";
+                html += "<p>No response generated.</p>";
             }
             responseContainer.innerHTML = html;
         }
@@ -41,3 +32,7 @@ document.getElementById('queryForm').addEventListener('submit', async (e) => {
         responseContainer.innerHTML = `<p>Error: ${err.message}</p>`;
     }
 });
+
+
+
+
