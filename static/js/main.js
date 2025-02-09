@@ -1,4 +1,3 @@
-// static/js/main.js
 document.getElementById('queryForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const queryInput = document.getElementById('queryInput');
@@ -18,13 +17,21 @@ document.getElementById('queryForm').addEventListener('submit', async (e) => {
         if (data.error) {
             responseContainer.innerHTML = `<p>Error: ${data.error}</p>`;
         } else {
-            // Build the HTML output using the new structure
-            let html = `<h2>Your query:</h2><p>${data.query}</p>`;
-            html += `<h2>Response from Gemini:</h2>`;
-            if (data.response) {
-                html += `<p>${data.response}</p>`;
+            let html = `<h2>Your Query:</h2><p>${data.query}</p>`;
+            html += `<h2>AI Answer:</h2><p>${data.answer}</p>`;
+
+            if (data.search_results && data.search_results.length > 0) {
+                html += `<h2>Search Results:</h2><ul>`;
+                data.search_results.forEach(result => {
+                    html += `<li>
+                      <strong>${result.title || "No title"}</strong><br>
+                      <span>${result.body || "No snippet available"}</span><br>
+                      <a href="${result.href}" target="_blank">${result.href}</a>
+                    </li>`;
+                });
+                html += `</ul>`;
             } else {
-                html += "<p>No response generated.</p>";
+                html += "<p>No search results found.</p>";
             }
             responseContainer.innerHTML = html;
         }
@@ -32,7 +39,3 @@ document.getElementById('queryForm').addEventListener('submit', async (e) => {
         responseContainer.innerHTML = `<p>Error: ${err.message}</p>`;
     }
 });
-
-
-
-

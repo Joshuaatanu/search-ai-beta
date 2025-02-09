@@ -3,12 +3,25 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import requests
 import config
-
+from duckduckgo_search import DDGS
 # Import the Gemini client from Google’s generative AI library
 import google.generativeai as genai
 app = Flask(__name__)
 CORS(app)
-
+def query_duckduckgo_text(query):
+    """
+    Uses DuckDuckGo's text search via the duckduckgo_search library to get search results.
+    """
+    try:
+        ddgs = DDGS()
+        # Perform a text search with the provided query.
+        # You can adjust parameters like region, safesearch, and max_results as needed.
+        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=5)
+        return results
+    except Exception as e:
+        print("DuckDuckGo text search error:", e)
+        return []
+        
 def query_gemini(user_query):
     """
     Uses Google's genai client to generate content with the Gemini model.
@@ -21,32 +34,28 @@ def query_gemini(user_query):
         # You can adjust parameters like model and prompt contents as needed.
         response = model.generate_content(user_query)
         # Assume the response object has a `.text` attribute with the generated output
+        print("Gemini API raw response:", response.text)
+
         return response.text
     except Exception as e:
         print("Gemini API error:", e)
         return None
 
 
+def generate_answer_from_search(user_query, search_results):
     """
-    Queries the Deepseek API using an HTTP POST request.
+    Combines search results with the user query into a prompt and generates an AI answer via Gemini.
     """
-    headers = {
-        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "query": query_text,
-        "limit": 5  # Return top 5 results
-    }
-    try:
-        response = requests.post(config.DEEPSEEK_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        # Assume the API returns a field 'results'
-        return data.get("results", [])
-    except requests.RequestException as e:
-        print("Deepseek API error:", e)
-        return []
+    prompt = "You are a knowledgeable assistant. Based on the following search results, answer the question:\n\n"
+    # Use up to 3 search results for context.
+    for result in search_results[:3]:
+        title = result.get("title", "No title")
+        snippet = result.get("body", "No snippet available")
+        # For DuckDuckGo text results, the URL is typically under the key "href"
+        url = result.get("href", "")
+        prompt += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
+    prompt += f"Question: {user_query}\n\nAnswer:"
+    return query_gemini(prompt)   
 
 @app.route("/")
 def home():
@@ -59,14 +68,18 @@ def handle_query():
     if not user_query:
         return jsonify({"error": "No query provided"}), 400
 
-    # Use Gemini to generate a response.
-    gemini_response = query_gemini(user_query)
-    if gemini_response is None:
-        return jsonify({"error": "Error processing query with Gemini"}), 500
+    # 1. Retrieve search results using DuckDuckGo text search.
+    search_results = query_duckduckgo_text(user_query)
+    
+    # 2. Generate an answer using Gemini with search results as context.
+    generated_answer = generate_answer_from_search(user_query, search_results)
+    if generated_answer is None:
+        return jsonify({"error": "Error generating answer from Gemini"}), 500
 
     final_response = {
         "query": user_query,
-        "response": gemini_response
+        "search_results": search_results,
+        "answer": generated_answer
     }
 
     return jsonify(final_response)
