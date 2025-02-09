@@ -44,18 +44,33 @@ def query_gemini(user_query):
 
 def generate_answer_from_search(user_query, search_results):
     """
-    Combines search results with the user query into a prompt and generates an AI answer via Gemini.
+    Combines search results with the user query into a prompt that instructs Gemini to generate a summary.
+    The prompt follows the provided step-by-step summarization instructions.
     """
-    prompt = "You are a knowledgeable assistant. Based on the following search results, answer the question:\n\n"
-    # Use up to 3 search results for context.
+    # Build a text block from up to 3 search results.
+    combined_text = ""
     for result in search_results[:3]:
         title = result.get("title", "No title")
         snippet = result.get("body", "No snippet available")
-        # For DuckDuckGo text results, the URL is typically under the key "href"
         url = result.get("href", "")
-        prompt += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
-    prompt += f"Question: {user_query}\n\nAnswer:"
-    return query_gemini(prompt)   
+        combined_text += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
+    
+    # Use the provided summarization prompt.
+    prompt = (
+        "To generate a summary of the following text, follow these steps:\n\n"
+        "1. Read the text carefully to understand the main ideas and themes.\n"
+        "2. Identify the key points and arguments presented in the text.\n"
+        "3. Organize the information into related groups to form a coherent structure.\n"
+        "4. Write a concise summary for each group of ideas.\n"
+        "5. Combine the summaries into a single, cohesive summary.\n"
+        "6. Review and refine the final summary for clarity and accuracy.\n\n"
+        "Now, apply these steps to the following text:\n\n"
+        f"{combined_text}\n"
+        f"Question: {user_query}\n\n"
+        "Answer:"
+    )
+    
+    return query_gemini(prompt)
 
 @app.route("/")
 def home():
