@@ -74,9 +74,9 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 html += "<p class='fade-in'>No search results found.</p>";
             }
-
             responseContainer.innerHTML = html;
             responseContainer.classList.add("fade-in");
+
 
         } catch (err) {
             responseContainer.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
@@ -86,3 +86,23 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 });
+
+function renderResponse(data) {
+    const elements = [];
+
+    elements.push(`<h2 class="fade-in">Your Query:</h2>
+                  <p class="fade-in typewriter">${escapeHtml(data.query || "N/A")}</p>`);
+
+    elements.push(`<h2 class="fade-in">AI Answer:</h2>
+                  <div class="ai-response fade-in typewriter">
+                    ${escapeHtml(data.answer || "No answer available.")}
+                  </div>`);
+
+    if (data.search_results?.length > 0) {
+        elements.push(renderSearchResults(data.search_results));
+    } else {
+        elements.push(`<p class='fade-in'>No search results found.</p>`);
+    }
+
+    return elements.join('');
+}

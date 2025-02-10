@@ -6,14 +6,17 @@
   <title>Sentino AI Query</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script defer src="/static/js/main.js"></script>
+  <meta name="description" content="AI Query Interface for Sentino">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 </head>
 <body>
   <div class="container">
     <h1 class="title">Sentino AI Query</h1>
     
-    <form id="queryForm">
-      <input type="text" id="queryInput" placeholder="Enter your question..." required>
-      <button type="submit">Search</button>
+    <form id="queryForm" aria-label="AI Query Form">
+      <input type="text" id="queryInput" placeholder="Enter your question..." 
+             required aria-label="Query Input">
+      <button type="submit" aria-label="Submit Query">Search</button>
     </form>
 
     <div class="button-group">

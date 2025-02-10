@@ -6,6 +6,7 @@
     --button-bg: #000;
     --button-hover: #005500;
     --button-border: #00FF00;
+    --text-color-rgb: 51, 255, 51;
 }
 
 /* Retro Amber Theme */
@@ -16,6 +17,7 @@
     --button-bg: #222;
     --button-hover: #993300;
     --button-border: #FFB000;
+    --text-color-rgb: 255, 176, 0;
 }
 
 /* Modern Blue Theme */
@@ -26,6 +28,7 @@
     --button-bg: #001A33;
     --button-hover: #004466;
     --button-border: #00CFFF;
+    --text-color-rgb: 0, 207, 255;
 }
 
 /* General Styling */
@@ -153,3 +156,16 @@ button:active {
 
 .fade-in {
     animation: fadeIn 0.8s ease
+}
+
+/* AI Response Styling */
+.ai-response {
+    background: rgba(var(--text-color-rgb), 0.1);
+    padding: 15px;
+    border-left: 3px solid var(--text-color);
+    border-radius: var(--border-radius);
+    margin: 15px 0;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
