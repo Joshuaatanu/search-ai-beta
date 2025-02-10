@@ -2,19 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Custom Search Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentino AI Query</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <script defer src="/static/js/main.js"></script>
 </head>
 <body>
   <div class="container">
-    <h1>Sentino AI query</h1>
+    <h1 class="title">Sentino AI Query</h1>
+    
     <form id="queryForm">
       <input type="text" id="queryInput" placeholder="Enter your question..." required>
       <button type="submit">Search</button>
     </form>
+
+    <div class="button-group">
+      <button id="themeSwitcher">Change Theme</button>
+      <button id="clearResults">Clear Results</button>
+    </div>
+
     <!-- Response container: results and spinner will appear here -->
     <div id="responseContainer"></div>
   </div>
-  <script src="/static/js/main.js"></script>
 </body>
 </html>

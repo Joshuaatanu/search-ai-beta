@@ -1,48 +1,88 @@
-document.getElementById('queryForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+document.addEventListener("DOMContentLoaded", function () {
+    const queryForm = document.getElementById('queryForm');
     const queryInput = document.getElementById('queryInput');
-    const query = queryInput.value.trim();
-    if (!query) return;
-
     const responseContainer = document.getElementById('responseContainer');
+    const themeSwitcher = document.getElementById('themeSwitcher');
 
-    // Show spinner and processing message
-    responseContainer.innerHTML = `
-      <div class="spinner"></div>
-      <p class="processing">Processing your request...</p>
-    `;
-    responseContainer.style.opacity = 1;  // Ensure the container is visible
-
-    try {
-        const response = await fetch('/api/query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: query })
-        });
-        const data = await response.json();
-
-        // Build the HTML output based on the API response.
-        let html = `<h2>Your Query:</h2><p>${data.query}</p>`;
-        html += `<h2>AI Answer:</h2><p>${data.answer}</p>`;
-
-        if (data.search_results && data.search_results.length > 0) {
-            html += `<h2>Search Results:</h2><ul>`;
-            data.search_results.forEach(result => {
-                html += `<li>
-            <strong>${result.title || "No title"}</strong><br>
-            <span>${result.body || "No snippet available"}</span><br>
-            <a href="${result.href}" target="_blank">${result.href}</a>
-          </li>`;
-            });
-            html += `</ul>`;
-        } else {
-            html += "<p>No search results found.</p>";
-        }
-
-        // Apply fade-in effect by adding the fade-in class.
-        responseContainer.innerHTML = html;
-        responseContainer.classList.add("fade-in");
-    } catch (err) {
-        responseContainer.innerHTML = `<p>Error: ${err.message}</p>`;
+    if (!queryForm || !queryInput || !responseContainer || !themeSwitcher) {
+        console.error("Some elements are missing in the DOM. Ensure IDs match the HTML.");
+        return;
     }
+
+    // Available themes
+    const themes = ['classic', 'amber', 'blue'];
+    let currentThemeIndex = 0;
+
+    // Load saved theme from local storage
+    if (localStorage.getItem('theme')) {
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme'));
+        currentThemeIndex = themes.indexOf(localStorage.getItem('theme'));
+    }
+
+    // Handle theme switching
+    themeSwitcher.addEventListener('click', () => {
+        currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+        const newTheme = themes[currentThemeIndex];
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+    });
+
+    // Form submission
+    queryForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const query = queryInput.value.trim();
+        if (!query) return;
+
+        const submitButton = queryForm.querySelector('button');
+
+        // Disable button and show loading
+        submitButton.disabled = true;
+        responseContainer.innerHTML = `
+            <div class="spinner"></div>
+            <p class="processing typewriter">Processing your request...</p>
+        `;
+        responseContainer.style.opacity = 1;
+
+        try {
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // Construct response HTML
+            let html = `<h2 class="fade-in">Your Query:</h2><p class="fade-in typewriter">${data.query || "N/A"}</p>`;
+            html += `<h2 class="fade-in">AI Answer:</h2><p class="fade-in typewriter">${data.answer || "No answer available."}</p>`;
+
+            // If search results exist, display them
+            if (data.search_results && data.search_results.length > 0) {
+                html += `<h2 class="fade-in">Search Results:</h2><ul>`;
+                data.search_results.forEach(result => {
+                    html += `<li class="fade-in">
+                        <strong>${result.title || "No title"}</strong><br>
+                        <span>${result.body || "No snippet available"}</span><br>
+                        <a href="${result.href}" target="_blank">${result.href}</a>
+                    </li>`;
+                });
+                html += `</ul>`;
+            } else {
+                html += "<p class='fade-in'>No search results found.</p>";
+            }
+
+            responseContainer.innerHTML = html;
+            responseContainer.classList.add("fade-in");
+
+        } catch (err) {
+            responseContainer.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
+        } finally {
+            submitButton.disabled = false;
+            queryInput.value = '';
+        }
+    });
 });
