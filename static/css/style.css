@@ -153,7 +153,9 @@ button:active {
     0% { opacity: 0; }
     100% { opacity: 1; }
 }
-
+.width{
+    /* width: 700px;; */
+}
 .fade-in {
     animation: fadeIn 0.8s ease
 }

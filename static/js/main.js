@@ -9,6 +9,12 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
     }
 
+    // Load Markdown parser
+    if (typeof marked === "undefined") {
+        console.error("Markdown parser 'marked.js' not loaded.");
+        return;
+    }
+
     // Available themes
     const themes = ['classic', 'amber', 'blue'];
     let currentThemeIndex = 0;
@@ -56,17 +62,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const data = await response.json();
 
-            // Construct response HTML
-            let html = `<h2 class="fade-in">Your Query:</h2><p class="fade-in typewriter">${data.query || "N/A"}</p>`;
-            html += `<h2 class="fade-in">AI Answer:</h2><p class="fade-in typewriter">${data.answer || "No answer available."}</p>`;
+            // Construct response HTML with Markdown parsing
+            let html = `<h2 class="fade-in">Your Query:</h2>
+                        <p class="fade-in typewriter">${escapeHtml(data.query || "N/A")}</p>`;
+
+            html += `<h2 class="fade-in">AI Answer:</h2>
+                     <div class="ai-response fade-in typewriter">${marked.parse(data.answer || "No answer available.")}</div>`;
 
             // If search results exist, display them
             if (data.search_results && data.search_results.length > 0) {
                 html += `<h2 class="fade-in">Search Results:</h2><ul>`;
                 data.search_results.forEach(result => {
                     html += `<li class="fade-in">
-                        <strong>${result.title || "No title"}</strong><br>
-                        <span>${result.body || "No snippet available"}</span><br>
+                        <strong>${escapeHtml(result.title || "No title")}</strong><br>
+                        <span>${escapeHtml(result.body || "No snippet available")}</span><br>
                         <a href="${result.href}" target="_blank">${result.href}</a>
                     </li>`;
                 });
@@ -74,9 +83,9 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 html += "<p class='fade-in'>No search results found.</p>";
             }
+
             responseContainer.innerHTML = html;
             responseContainer.classList.add("fade-in");
-
 
         } catch (err) {
             responseContainer.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
@@ -87,22 +96,9 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 });
 
-function renderResponse(data) {
-    const elements = [];
-
-    elements.push(`<h2 class="fade-in">Your Query:</h2>
-                  <p class="fade-in typewriter">${escapeHtml(data.query || "N/A")}</p>`);
-
-    elements.push(`<h2 class="fade-in">AI Answer:</h2>
-                  <div class="ai-response fade-in typewriter">
-                    ${escapeHtml(data.answer || "No answer available.")}
-                  </div>`);
-
-    if (data.search_results?.length > 0) {
-        elements.push(renderSearchResults(data.search_results));
-    } else {
-        elements.push(`<p class='fade-in'>No search results found.</p>`);
-    }
-
-    return elements.join('');
+// Function to escape HTML (for security)
+function escapeHtml(text) {
+    let element = document.createElement("div");
+    element.innerText = text;
+    return element.innerHTML;
 }
