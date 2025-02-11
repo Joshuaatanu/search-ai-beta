@@ -59,7 +59,7 @@ def generate_answer_from_search(user_query, search_results):
     
     # Use the provided summarization prompt.
     prompt = (
-        "To generate a summary of the following text, follow these steps:\n\n"
+        "To generate a large of the following text, follow these steps:\n\n"
         "1. Read the text carefully to understand the main ideas and themes.\n"
         "2. Identify the key points and arguments presented in the text.\n"
         "3. Organize the information into related groups to form a coherent structure.\n"
