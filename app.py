@@ -7,9 +7,9 @@ from duckduckgo_search import DDGS
 # Import the Gemini client from Google’s generative AI library
 import google.generativeai as genai
 
-from google.genai import types
 app = Flask(__name__)
 CORS(app)
+
 def query_duckduckgo_text(query):
     """
     Uses DuckDuckGo's text search via the duckduckgo_search library to get search results.
@@ -32,7 +32,9 @@ def query_gemini(user_query):
         # Create a client instance with your API key
         genai.configure(api_key=config.GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.0-flash")
-        
+
+        # Generate content using the Gemini model.
+        # You can adjust parameters like model and prompt contents as needed.
         response = model.generate_content(user_query)
         
         # Assume the response object has a `.text` attribute with the generated output
@@ -59,8 +61,8 @@ def generate_answer_from_search(user_query, search_results):
     
     # Use the provided summarization prompt.
     prompt = (
-        "To generate an output  of the following text, follow these steps:\n\n"
-        "1. Read the text carefully to understand and analyse and add to  the main ideas and themes.\n"
+        "To generate a summary of the following text, follow these steps:\n\n"
+        "1. Read the text carefully to understand the main ideas and themes.\n"
         "2. Identify the key points and arguments presented in the text.\n"
         "3. Organize the information into related groups to form a coherent structure.\n"
         "4. Write a concise summary for each group of ideas.\n"
@@ -71,6 +73,7 @@ def generate_answer_from_search(user_query, search_results):
         f"Question: {user_query}\n\n"
         "Answer:"
     )
+    
     
     return query_gemini(prompt)
 
@@ -103,3 +106,4 @@ def handle_query():
 
 if __name__ == "__main__":
     app.run(debug=config.DEBUG)
+
