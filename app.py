@@ -24,58 +24,62 @@ def query_duckduckgo_text(query):
         print("DuckDuckGo text search error:", e)
         return []
         
-def query_gemini(user_query):
-    """
-    Uses Google's genai client to generate content with the Gemini model.
-    """
+def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
     try:
-        # Create a client instance with your API key
         genai.configure(api_key=config.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-
-        # Generate content using the Gemini model.
-        # You can adjust parameters like model and prompt contents as needed.
-        response = model.generate_content(user_query)
-        
-        # Assume the response object has a `.text` attribute with the generated output
-        print("Gemini API raw response:", response.text)
-
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            generation_config={
+                "max_output_tokens": 2048 if deep_analysis else 1024,
+                "temperature": 0.7 if deep_analysis else 0.3
+            }
+        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         print("Gemini API error:", e)
         return None
-
-
-def generate_answer_from_search(user_query, search_results):
+def generate_answer_from_search(user_query, search_results, deep_analysis=False):
     """
-    Combines search results with the user query into a prompt that instructs Gemini to generate a summary.
-    The prompt follows the provided step-by-step summarization instructions.
+    Generates answer with optional deep analysis mode
     """
-    # Build a text block from up to 3 search results.
     combined_text = ""
     for result in search_results[:3]:
         title = result.get("title", "No title")
         snippet = result.get("body", "No snippet available")
         url = result.get("href", "")
         combined_text += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
-    
-    # Use the provided summarization prompt.
-    prompt = (
-        "To generate a summary of the following text, follow these steps:\n\n"
-        "1. Read the text carefully to understand the main ideas and themes.\n"
-        "2. Identify the key points and arguments presented in the text.\n"
-        "3. Organize the information into related groups to form a coherent structure.\n"
-        "4. Write a concise summary for each group of ideas.\n"
-        "5. Combine the summaries into a single, cohesive summary.\n"
-        "6. Review and refine the final summary for clarity and accuracy.\n\n"
-        "Now, apply these steps to the following text:\n\n"
-        f"{combined_text}\n"
-        f"Question: {user_query}\n\n"
-        "Answer:"
+
+    # Modified prompt with deep analysis capabilities
+    base_prompt = (
+        "To generate a response for the following query, follow these steps:\n\n"
+        "1. Perform comprehensive analysis of all provided sources\n"
+        "2. Identify technical specifications and underlying mechanisms\n"
+        "3. Cross-reference with known similar systems\n"
     )
     
+    if deep_analysis:
+        base_prompt += (
+            "4. Conduct multi-perspective evaluation (technical, social, ethical)\n"
+            "5. Generate predictive models for future developments\n"
+            "6. Formulate potential failure scenarios and mitigation strategies\n\n"
+        )
+    else:
+        base_prompt += (
+            "4. Extract key actionable insights\n"
+            "5. Summarize in clear, concise points\n\n"
+        )
+
+    prompt = (
+        f"{base_prompt}"
+        "Now, apply these steps to the following data:\n\n"
+        f"{combined_text}\n"
+        f"Query: {user_query}\n\n"
+        "Provide a comprehensive response:\n"
+    )
     
-    return query_gemini(prompt)
+    return query_gemini(prompt,deep_analysis)
+    
 
 @app.route("/")
 def home():
@@ -85,25 +89,25 @@ def home():
 def handle_query():
     data = request.json
     user_query = data.get("query", "")
+    deep_analysis = data.get("enable_deep_analysis", False)
+    
     if not user_query:
         return jsonify({"error": "No query provided"}), 400
 
-    # 1. Retrieve search results using DuckDuckGo text search.
     search_results = query_duckduckgo_text(user_query)
+    generated_answer = generate_answer_from_search(user_query, search_results, deep_analysis)
     
-    # 2. Generate an answer using Gemini with search results as context.
-    generated_answer = generate_answer_from_search(user_query, search_results)
     if generated_answer is None:
         return jsonify({"error": "Error generating answer from Gemini"}), 500
 
     final_response = {
         "query": user_query,
         "search_results": search_results,
-        "answer": generated_answer
+        "answer": generated_answer,
+        "deep_analysis": deep_analysis
     }
-
+    print(final_response)
     return jsonify(final_response)
-
 if __name__ == "__main__":
     app.run(debug=config.DEBUG)
 
