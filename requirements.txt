@@ -4,6 +4,7 @@ cachetools==5.5.1
 certifi==2025.1.31
 charset-normalizer==3.4.1
 click==8.1.8
+dotenv==0.9.9
 duckduckgo_search==7.3.2
 Flask==3.1.0
 Flask-Cors==5.0.0
@@ -31,6 +32,7 @@ pyasn1_modules==0.4.1
 pydantic==2.10.6
 pydantic_core==2.27.2
 pyparsing==3.2.1
+python-dotenv==1.0.1
 requests==2.32.3
 rsa==4.9
 tqdm==4.67.1

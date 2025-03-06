@@ -4,6 +4,8 @@ from flask_cors import CORS
 import requests
 import config
 from duckduckgo_search import DDGS
+import os
+from dotenv import load_dotenv
 # Import the Gemini client from Google’s generative AI library
 import google.generativeai as genai
 
@@ -26,7 +28,7 @@ def query_duckduckgo_text(query):
         
 def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
     try:
-        genai.configure(api_key=config.GEMINI_API_KEY)
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel(
             "gemini-2.0-flash",
             generation_config={
