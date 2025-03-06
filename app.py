@@ -2,7 +2,7 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import requests
-import config
+
 from duckduckgo_search import DDGS
 import os
 from dotenv import load_dotenv
