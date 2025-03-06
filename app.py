@@ -111,5 +111,6 @@ def handle_query():
     print(final_response)
     return jsonify(final_response)
 if __name__ == "__main__":
-    app.run(debug=True, port=os.getenv("PORT") or 10000)
+    port =int(os.getenv("PORT",10000))
+    app.run(host='0.0.0.0',debug=True, port=port)
 
