@@ -18,7 +18,7 @@ def query_duckduckgo_text(query):
         ddgs = DDGS()
         # Perform a text search with the provided query.
         # You can adjust parameters like region, safesearch, and max_results as needed.
-        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=5)
+        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=10)
         return results
     except Exception as e:
         print("DuckDuckGo text search error:", e)
