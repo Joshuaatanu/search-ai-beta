@@ -6,7 +6,7 @@ import requests
 from duckduckgo_search import DDGS
 import os
 from dotenv import load_dotenv
-# Import the Gemini client from Google’s generative AI library
+# Import the Gemini client from Google's generative AI library
 import google.generativeai as genai
 
 app = Flask(__name__)
@@ -111,5 +111,5 @@ def handle_query():
     print(final_response)
     return jsonify(final_response)
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=os.getenv("PORT") or 10000)
 
