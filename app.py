@@ -111,5 +111,5 @@ def handle_query():
     print(final_response)
     return jsonify(final_response)
 if __name__ == "__main__":
-    app.run(debug=config.DEBUG)
+    app.run(debug=True)
 
