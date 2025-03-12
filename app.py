@@ -41,6 +41,34 @@ def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
     except Exception as e:
         print("Gemini API error:", e)
         return None
+    
+
+def query_gemini_chat(messages, context=None):
+    """
+    Uses the Gemini API to generate a chat response based on conversation history.
+    """
+    try:
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-2.0-flash") # or "gemini-pro" for potentially better quality
+
+        # Prepare chat history format for Gemini API
+        gemini_messages = []
+        if context:
+            gemini_messages.append({"role": "user", "parts": [{"text": f"Context for this conversation: {context}"}]}) # Adding context as the first message
+        for msg in messages:
+            gemini_messages.append({"role": msg['role'], "parts": [{"text": msg['content']}]})
+
+        chat = model.start_chat(history=gemini_messages)
+        response = chat.send_message(gemini_messages[-1]["parts"][0]["text"]) # Send the last user message again to get response. This might be redundant.
+
+        return response.text
+    except Exception as e:
+        print("Gemini API chat error:", e)
+        return None
+
+
+
+
 def generate_answer_from_search(user_query, search_results, deep_analysis=False):
     """
     Generates answer with optional deep analysis mode
@@ -111,45 +139,25 @@ def handle_query():
     print(final_response)
     return jsonify(final_response)
 
-def chat_with_gemini(messages, context=""):
-    """
-    Handle conversational chat with Gemini
-    """
-    try:
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-pro")
-        
-        # Prepare the chat prompt
-        chat_prompt = f"Context: {context}\n\n"
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            chat_prompt += f"{role}: {content}\n"
-        
-        response = model.generate_content(chat_prompt)
-        return response.text
-    except Exception as e:
-        print("Gemini Chat API error:", e)
-        return None
-
 @app.route("/api/chat", methods=["POST"])
 def handle_chat():
     data = request.json
     messages = data.get("messages", [])
-    context = data.get("context", "")
-    
+    context = data.get("context")
+
     if not messages:
         return jsonify({"error": "No messages provided"}), 400
 
-    chat_response = chat_with_gemini(messages, context)
-    
-    if chat_response is None:
+    gemini_response_text = query_gemini_chat(messages, context)
+
+    if gemini_response_text is None:
         return jsonify({"error": "Error generating chat response from Gemini"}), 500
 
-    return jsonify({
-        "response": chat_response,
-        "messages": messages
-    })
+    final_response = {
+        "response": gemini_response_text
+    }
+    print(f'{final_response=}')
+    return jsonify(final_response)
 
 if __name__ == "__main__":
     port =int(os.getenv("PORT",10000))
