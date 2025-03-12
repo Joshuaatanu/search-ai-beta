@@ -5,7 +5,7 @@ certifi==2025.1.31
 charset-normalizer==3.4.1
 click==8.1.8
 dotenv==0.9.9
-duckduckgo_search==7.3.2
+duckduckgo_search==7.5.1
 Flask==3.1.0
 Flask-Cors==5.0.0
 google-ai-generativelanguage==0.6.15
@@ -24,7 +24,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.5
 lxml==5.3.0
 MarkupSafe==3.0.2
-primp==0.12.0
+primp==0.14.0
 proto-plus==1.26.0
 protobuf==5.29.3
 pyasn1==0.6.1

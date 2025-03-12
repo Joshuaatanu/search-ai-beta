@@ -110,6 +110,47 @@ def handle_query():
     }
     print(final_response)
     return jsonify(final_response)
+
+def chat_with_gemini(messages, context=""):
+    """
+    Handle conversational chat with Gemini
+    """
+    try:
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-pro")
+        
+        # Prepare the chat prompt
+        chat_prompt = f"Context: {context}\n\n"
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            chat_prompt += f"{role}: {content}\n"
+        
+        response = model.generate_content(chat_prompt)
+        return response.text
+    except Exception as e:
+        print("Gemini Chat API error:", e)
+        return None
+
+@app.route("/api/chat", methods=["POST"])
+def handle_chat():
+    data = request.json
+    messages = data.get("messages", [])
+    context = data.get("context", "")
+    
+    if not messages:
+        return jsonify({"error": "No messages provided"}), 400
+
+    chat_response = chat_with_gemini(messages, context)
+    
+    if chat_response is None:
+        return jsonify({"error": "Error generating chat response from Gemini"}), 500
+
+    return jsonify({
+        "response": chat_response,
+        "messages": messages
+    })
+
 if __name__ == "__main__":
     port =int(os.getenv("PORT",10000))
     app.run(host='0.0.0.0',debug=True, port=port)
