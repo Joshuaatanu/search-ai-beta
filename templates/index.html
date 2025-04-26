@@ -20,11 +20,25 @@
         <li><a href="#" class="nav-link" data-view="academic">Academic Research</a></li>
       </ul>
     </nav>
-    <button id="themeSwitcher" aria-label="Switch Theme">
-      <svg viewBox="0 0 24 24" width="24" height="24">
-        <path d="M20 15.31L23.31 12 20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69z"></path>
-      </svg>
-    </button>
+    <div class="user-actions">
+      {% if current_user.is_authenticated %}
+        <a href="/profile" class="user-profile">
+          {% if current_user.picture %}
+            <img src="{{ current_user.picture }}" alt="{{ current_user.name }}" class="user-avatar">
+          {% else %}
+            <div class="user-avatar-placeholder">{{ current_user.name[:1] }}</div>
+          {% endif %}
+          <span>{{ current_user.name }}</span>
+        </a>
+      {% else %}
+        <a href="/login" class="login-button">Login</a>
+      {% endif %}
+      <button id="themeSwitcher" aria-label="Switch Theme">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M20 15.31L23.31 12 20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69z"></path>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <main>
@@ -117,10 +131,90 @@
   </main>
 
   <footer>
-    <button id="clearResults">Clear Results</button>
-    <span class="copyright">© 2025 Sentino AI</span>
+    <div class="footer-left">
+      <button id="clearResults">Clear Results</button>
+    </div>
+    <div class="footer-right">
+      <span class="copyright">© 2025 Sentino AI</span>
+      {% if current_user.is_authenticated %}
+        <a href="/logout" class="footer-link">Logout</a>
+      {% else %}
+        <a href="/login" class="footer-link">Login</a>
+      {% endif %}
+    </div>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  
+  <script>
+    // Check for URL parameters to handle searches from history/favorites
+    document.addEventListener('DOMContentLoaded', function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const query = urlParams.get('query');
+      const type = urlParams.get('type');
+      
+      if (query) {
+        // Handle the search based on the type
+        switch (type) {
+          case 'deep':
+            document.querySelector('.nav-link[data-view="deep-analysis"]').click();
+            const deepInput = document.getElementById('deepAnalysisInput');
+            deepInput.value = query;
+            document.getElementById('deepAnalysisForm').dispatchEvent(new Event('submit'));
+            break;
+          
+          case 'academic':
+            document.querySelector('.nav-link[data-view="academic"]').click();
+            const academicInput = document.getElementById('academicInput');
+            academicInput.value = query;
+            document.getElementById('academicForm').dispatchEvent(new Event('submit'));
+            break;
+          
+          default: // 'quick' or any other value
+            document.querySelector('.nav-link[data-view="search"]').click();
+            const searchInput = document.getElementById('searchInput');
+            searchInput.value = query;
+            document.getElementById('searchForm').dispatchEvent(new Event('submit'));
+        }
+        
+        // Clean the URL without reloading the page
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    });
+    
+    // Add functionality to save search to favorites
+    function addFavorite(query, searchType, result = null) {
+      {% if current_user.is_authenticated %}
+        const name = prompt('Enter a name for this favorite:', query);
+        if (name) {
+          fetch('/api/favorites/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name,
+              query,
+              search_type: searchType,
+              result
+            })
+          })
+          .then(response => {
+            if (response.ok) {
+              alert('Added to favorites!');
+            } else {
+              alert('Failed to add to favorites');
+            }
+          })
+          .catch(error => {
+            console.error('Error adding favorite:', error);
+            alert('An error occurred');
+          });
+        }
+      {% else %}
+        if (confirm('You need to be logged in to save favorites. Would you like to login now?')) {
+          window.location.href = '/login';
+        }
+      {% endif %}
+    }
+  </script>
 </body>
 </html>

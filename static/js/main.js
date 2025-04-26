@@ -92,7 +92,7 @@ document.addEventListener("DOMContentLoaded", function () {
             e.preventDefault();
             const query = document.getElementById('searchInput').value.trim();
             if (!query) return;
-            await handleSearch(query, searchResults, '/api/query');
+            await handleSearch(query, searchResults, '/api/query', false, 'quick');
         });
     }
     
@@ -101,7 +101,7 @@ document.addEventListener("DOMContentLoaded", function () {
             e.preventDefault();
             const query = document.getElementById('deepAnalysisInput').value.trim();
             if (!query) return;
-            await handleSearch(query, deepAnalysisResults, '/api/query', true);
+            await handleSearch(query, deepAnalysisResults, '/api/query', true, 'deep');
         });
     }
     
@@ -116,7 +116,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     // API request handlers
-    async function handleSearch(query, resultsContainer, endpoint, isDeepAnalysis = false) {
+    async function handleSearch(query, resultsContainer, endpoint, isDeepAnalysis = false, searchType = 'quick') {
         showLoading(resultsContainer);
         
         try {
@@ -135,7 +135,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const data = await response.json();
-            renderSearchResults(data, resultsContainer);
+            renderSearchResults(data, resultsContainer, query, searchType);
             
         } catch (err) {
             console.error("Error processing request:", err);
@@ -162,7 +162,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const data = await response.json();
-            renderAcademicResults(data, resultsContainer);
+            renderAcademicResults(data, resultsContainer, query);
             
         } catch (err) {
             console.error("Error processing academic request:", err);
@@ -193,10 +193,13 @@ document.addEventListener("DOMContentLoaded", function () {
         `;
     }
     
-    function renderSearchResults(data, container) {
+    function renderSearchResults(data, container, originalQuery, searchType) {
         let html = `
             <div class="results-header">
                 <h2>Results for: ${escapeHtml(data.query || "N/A")}</h2>
+                <div class="results-actions">
+                    <button onclick="addFavorite('${escapeHtml(originalQuery)}', '${searchType}')">Save to Favorites</button>
+                </div>
             </div>
             <div class="results-body">
                 <div class="answer-container">
@@ -222,10 +225,13 @@ document.addEventListener("DOMContentLoaded", function () {
         container.innerHTML = html;
     }
     
-    function renderAcademicResults(data, container) {
+    function renderAcademicResults(data, container, originalQuery) {
         let html = `
             <div class="results-header">
                 <h2>Academic Research: ${escapeHtml(data.query || "N/A")}</h2>
+                <div class="results-actions">
+                    <button onclick="addFavorite('${escapeHtml(originalQuery)}', 'academic')">Save to Favorites</button>
+                </div>
             </div>
             <div class="results-body">
                 <div class="academic-analysis">
@@ -259,12 +265,48 @@ document.addEventListener("DOMContentLoaded", function () {
         container.innerHTML = html;
     }
     
-    // Initialize: load last active view or default to welcome
-    const lastView = localStorage.getItem('lastView');
-    if (lastView) {
-        showView(lastView);
+    // Check for URL parameters to handle searches from history/favorites
+    const urlParams = new URLSearchParams(window.location.search);
+    const prefilledQuery = urlParams.get('query');
+    const searchType = urlParams.get('type');
+    
+    if (prefilledQuery && searchType) {
+        // Handle the search based on the type
+        switch (searchType) {
+            case 'deep':
+                document.querySelector('.nav-link[data-view="deep-analysis"]').click();
+                document.getElementById('deepAnalysisInput').value = prefilledQuery;
+                setTimeout(() => {
+                    document.getElementById('deepAnalysisForm').dispatchEvent(new Event('submit'));
+                }, 100);
+                break;
+            
+            case 'academic':
+                document.querySelector('.nav-link[data-view="academic"]').click();
+                document.getElementById('academicInput').value = prefilledQuery;
+                setTimeout(() => {
+                    document.getElementById('academicForm').dispatchEvent(new Event('submit'));
+                }, 100);
+                break;
+            
+            default: // 'quick' or any other value
+                document.querySelector('.nav-link[data-view="search"]').click();
+                document.getElementById('searchInput').value = prefilledQuery;
+                setTimeout(() => {
+                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
+                }, 100);
+        }
+        
+        // Clean the URL without reloading the page
+        window.history.replaceState({}, document.title, window.location.pathname);
     } else {
-        showView('welcome');
+        // Initialize: load last active view or default to welcome
+        const lastView = localStorage.getItem('lastView');
+        if (lastView) {
+            showView(lastView);
+        } else {
+            showView('welcome');
+        }
     }
 });
 

@@ -562,3 +562,128 @@ pre code {
         padding: 0.8rem 1rem;
     }
 }
+
+/* User authentication styling */
+.user-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.login-button {
+    padding: 0.5rem 1rem;
+    background-color: transparent;
+    border: 1px solid var(--text-color);
+    color: var(--text-color);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: background-color 0.2s;
+    font-size: 0.9rem;
+}
+
+.login-button:hover {
+    background-color: rgba(var(--text-color-rgb), 0.1);
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--secondary-text);
+    transition: color 0.2s;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+}
+
+.user-profile:hover {
+    color: var(--text-color);
+    background-color: rgba(var(--text-color-rgb), 0.1);
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--text-color);
+}
+
+.user-avatar-placeholder {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--text-color);
+    color: var(--background-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.logout-button {
+    color: var(--text-color);
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--text-color);
+    border-radius: var(--radius);
+    transition: background-color 0.2s;
+}
+
+.logout-button:hover {
+    background-color: rgba(var(--text-color-rgb), 0.1);
+}
+
+.provider-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    margin-right: 0.3rem;
+    background-color: rgba(var(--text-color-rgb), 0.1);
+}
+
+.provider-badge.google {
+    background-color: rgba(66, 133, 244, 0.1);
+    color: #4285f4;
+}
+
+.provider-badge.github {
+    background-color: rgba(36, 41, 46, 0.1);
+    color: #959da5;
+}
+
+.provider-badge.apple {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #a1a1a1;
+}
+
+.footer-left, .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.footer-link {
+    color: var(--secondary-text);
+    text-decoration: none;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.footer-link:hover {
+    opacity: 1;
+    color: var(--text-color);
+}
+
+.results-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.results-actions button {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+    background: transparent;
+    border: 1px solid var(--text-color);
+}

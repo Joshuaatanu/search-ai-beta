@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile - Sentino AI</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/auth.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+  <header>
+    <div class="logo">Sentino AI</div>
+    <nav>
+      <ul>
+        <li><a href="/" class="nav-link">Home</a></li>
+        <li><a href="/profile" class="nav-link active">Profile</a></li>
+      </ul>
+    </nav>
+    <a href="/logout" class="logout-button">Logout</a>
+  </header>
+  
+  <main class="profile-container">
+    <section class="profile-header">
+      <div class="profile-picture">
+        {% if user.picture %}
+          <img src="{{ user.picture }}" alt="{{ user.name }}">
+        {% else %}
+          <div class="profile-picture-placeholder">{{ user.name[:1] }}</div>
+        {% endif %}
+      </div>
+      
+      <div class="profile-info">
+        <h1>{{ user.name }}</h1>
+        <p>{{ user.email }}</p>
+        <p class="profile-provider">
+          <span class="provider-badge {{ user.provider }}">{{ user.provider|capitalize }}</span>
+          Account
+        </p>
+      </div>
+      
+      <div class="profile-actions">
+        <a href="/" class="button">Back to Search</a>
+      </div>
+    </section>
+    
+    <div class="profile-tabs">
+      <div class="profile-tab active" data-tab="history">Search History</div>
+      <div class="profile-tab" data-tab="favorites">Favorites</div>
+      <div class="profile-tab" data-tab="recommendations">Recommendations</div>
+    </div>
+    
+    <div class="profile-content">
+      <!-- History Tab -->
+      <div class="tab-panel active" id="history-panel">
+        {% if search_history %}
+          <div class="history-actions">
+            <button id="clearHistoryBtn" class="danger-button">Clear All History</button>
+          </div>
+          
+          <div class="history-list">
+            {% for item in search_history %}
+              <div class="history-item">
+                <div class="history-item-header">
+                  <div class="history-item-title">
+                    <span class="history-item-type {{ item.search_type }}">{{ item.search_type|capitalize }}</span>
+                    {{ item.query }}
+                  </div>
+                  <div class="history-item-date">{{ item.timestamp.strftime('%b %d, %Y %H:%M') }}</div>
+                </div>
+                <div class="history-item-actions">
+                  <button class="repeat-search" data-query="{{ item.query }}" data-type="{{ item.search_type }}">Repeat Search</button>
+                  <button class="add-favorite" data-query="{{ item.query }}" data-type="{{ item.search_type }}">Add to Favorites</button>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24">
+              <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+            </svg>
+            <h3>No Search History</h3>
+            <p>Your search history will appear here</p>
+          </div>
+        {% endif %}
+      </div>
+      
+      <!-- Favorites Tab -->
+      <div class="tab-panel" id="favorites-panel">
+        {% if favorites %}
+          <div class="favorites-grid">
+            {% for favorite in favorites %}
+              <div class="favorite-card">
+                <div class="favorite-card-header">
+                  <div class="favorite-card-title">{{ favorite.name }}</div>
+                </div>
+                <div class="favorite-card-content">
+                  <div class="favorite-card-query">{{ favorite.query }}</div>
+                  <div class="favorite-card-actions">
+                    <button class="repeat-search" data-query="{{ favorite.query }}" data-type="{{ favorite.search_type }}">Search</button>
+                    <button class="remove-favorite" data-id="{{ favorite._id }}">Remove</button>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+            </svg>
+            <h3>No Favorites Yet</h3>
+            <p>Add searches to your favorites to see them here</p>
+          </div>
+        {% endif %}
+      </div>
+      
+      <!-- Recommendations Tab -->
+      <div class="tab-panel" id="recommendations-panel">
+        {% if recommendations %}
+          <div class="recommendations-list">
+            {% for recommendation in recommendations %}
+              <div class="recommendation-item">
+                <div>
+                  <div class="recommendation-query">{{ recommendation.query }}</div>
+                  <div class="recommendation-based">Based on your interest in "{{ recommendation.based_on }}"</div>
+                </div>
+                <button class="use-recommendation" data-query="{{ recommendation.query }}" data-type="{{ recommendation.search_type }}">Try This</button>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+            </svg>
+            <h3>No Recommendations Yet</h3>
+            <p>Search more to get personalized recommendations</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </main>
+  
+  <script>
+    // Tab switching
+    const tabs = document.querySelectorAll('.profile-tab');
+    const panels = document.querySelectorAll('.tab-panel');
+    
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Deactivate all tabs and panels
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        
+        // Activate clicked tab and corresponding panel
+        tab.classList.add('active');
+        const tabName = tab.getAttribute('data-tab');
+        document.getElementById(`${tabName}-panel`).classList.add('active');
+      });
+    });
+    
+    // Clear history
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    if (clearHistoryBtn) {
+      clearHistoryBtn.addEventListener('click', async () => {
+        if (confirm('Are you sure you want to clear your entire search history?')) {
+          try {
+            const response = await fetch('/api/history/clear', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              alert('Failed to clear history');
+            }
+          } catch (error) {
+            console.error('Error clearing history:', error);
+            alert('An error occurred');
+          }
+        }
+      });
+    }
+    
+    // Repeat search
+    document.querySelectorAll('.repeat-search').forEach(button => {
+      button.addEventListener('click', () => {
+        const query = button.getAttribute('data-query');
+        const type = button.getAttribute('data-type');
+        
+        // Redirect to home with search parameters
+        window.location.href = `/?query=${encodeURIComponent(query)}&type=${type}`;
+      });
+    });
+    
+    // Add to favorites
+    document.querySelectorAll('.add-favorite').forEach(button => {
+      button.addEventListener('click', async () => {
+        const query = button.getAttribute('data-query');
+        const searchType = button.getAttribute('data-type');
+        const name = prompt('Enter a name for this favorite:', query);
+        
+        if (name) {
+          try {
+            const response = await fetch('/api/favorites/add', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                name,
+                query,
+                search_type: searchType
+              })
+            });
+            
+            if (response.ok) {
+              alert('Added to favorites!');
+              window.location.reload();
+            } else {
+              alert('Failed to add to favorites');
+            }
+          } catch (error) {
+            console.error('Error adding favorite:', error);
+            alert('An error occurred');
+          }
+        }
+      });
+    });
+    
+    // Remove favorite
+    document.querySelectorAll('.remove-favorite').forEach(button => {
+      button.addEventListener('click', async () => {
+        const favoriteId = button.getAttribute('data-id');
+        
+        if (confirm('Are you sure you want to remove this favorite?')) {
+          try {
+            const response = await fetch('/api/favorites/remove', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                favorite_id: favoriteId
+              })
+            });
+            
+            if (response.ok) {
+              button.closest('.favorite-card').remove();
+              // If no favorites left, show empty state
+              if (document.querySelectorAll('.favorite-card').length === 0) {
+                document.querySelector('#favorites-panel').innerHTML = `
+                  <div class="empty-state">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                    <h3>No Favorites Yet</h3>
+                    <p>Add searches to your favorites to see them here</p>
+                  </div>
+                `;
+              }
+            } else {
+              alert('Failed to remove favorite');
+            }
+          } catch (error) {
+            console.error('Error removing favorite:', error);
+            alert('An error occurred');
+          }
+        }
+      });
+    });
+    
+    // Use recommendation
+    document.querySelectorAll('.use-recommendation').forEach(button => {
+      button.addEventListener('click', () => {
+        const query = button.getAttribute('data-query');
+        const type = button.getAttribute('data-type');
+        
+        // Redirect to home with recommendation
+        window.location.href = `/?query=${encodeURIComponent(query)}&type=${type}`;
+      });
+    });
+  </script>
+</body>
+</html> 
