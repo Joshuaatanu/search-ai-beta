@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account Settings - Sentino AI</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/auth.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+  <header>
+    <div class="logo">Sentino AI</div>
+    <nav>
+      <ul>
+        <li><a href="/" class="nav-link">Home</a></li>
+        <li><a href="/profile" class="nav-link">Profile</a></li>
+        <li><a href="/account/settings" class="nav-link active">Settings</a></li>
+      </ul>
+    </nav>
+    <a href="/logout" class="logout-button">Logout</a>
+  </header>
+  
+  <main class="profile-container">
+    <section class="profile-header">
+      <div class="profile-picture">
+        {% if user.picture %}
+          <img src="{{ user.picture }}" alt="{{ user.name }}">
+        {% else %}
+          <div class="profile-picture-placeholder">{{ user.name[:1] }}</div>
+        {% endif %}
+      </div>
+      
+      <div class="profile-info">
+        <h1>Account Settings</h1>
+        <p>Manage your account information and preferences</p>
+        <p class="profile-provider">
+          <span class="provider-badge {{ user.provider }}">{{ user.provider|capitalize }}</span>
+          Account
+        </p>
+      </div>
+    </section>
+    
+    <div class="profile-tabs">
+      <div class="profile-tab active" data-tab="profile">Profile Information</div>
+      <div class="profile-tab" data-tab="password">Password</div>
+      <div class="profile-tab" data-tab="danger">Danger Zone</div>
+    </div>
+    
+    <div class="profile-content">
+      <!-- Profile Tab -->
+      <div class="tab-panel active" id="profile-panel">
+        <div class="settings-card">
+          <h2>Edit Profile</h2>
+          <form action="/account/update" method="POST">
+            <div class="form-group">
+              <label for="username">Username</label>
+              <input type="text" id="username" name="username" value="{{ user.username }}" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="name">Full Name</label>
+              <input type="text" id="name" name="name" value="{{ user.name }}">
+            </div>
+            
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input type="email" id="email" name="email" value="{{ user.email }}" {% if user.provider != 'email' %}readonly{% endif %}>
+              {% if user.provider != 'email' %}
+                <small>Email cannot be changed for {{ user.provider }} accounts</small>
+              {% endif %}
+            </div>
+            
+            <button type="submit" class="submit-button">Update Profile</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Password Tab -->
+      <div class="tab-panel" id="password-panel">
+        <div class="settings-card">
+          <h2>Change Password</h2>
+          {% if user.provider == 'email' %}
+            <form action="/account/change-password" method="POST">
+              <div class="form-group">
+                <label for="current_password">Current Password</label>
+                <input type="password" id="current_password" name="current_password" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="new_password">New Password</label>
+                <input type="password" id="new_password" name="new_password" required minlength="8">
+                <small>Minimum 8 characters</small>
+              </div>
+              
+              <div class="form-group">
+                <label for="confirm_password">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
+              </div>
+              
+              <button type="submit" class="submit-button">Change Password</button>
+            </form>
+          {% else %}
+            <p>You're using {{ user.provider }} to log in, so you don't have a password for this account.</p>
+            <form action="/account/change-password" method="POST">
+              <div class="form-group">
+                <label for="new_password">Set Password</label>
+                <input type="password" id="new_password" name="new_password" required minlength="8">
+                <small>Minimum 8 characters</small>
+              </div>
+              
+              <div class="form-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
+              </div>
+              
+              <input type="hidden" name="current_password" value="">
+              <button type="submit" class="submit-button">Set Password</button>
+              <p class="help-text">Setting a password will allow you to log in with your email/username in addition to {{ user.provider }}.</p>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+      
+      <!-- Danger Zone Tab -->
+      <div class="tab-panel" id="danger-panel">
+        <div class="settings-card danger-zone">
+          <h2>Delete Account</h2>
+          <p>Once you delete your account, there is no going back. Please be certain.</p>
+          
+          <form action="/account/delete" method="POST" id="deleteForm">
+            {% if user.provider == 'email' %}
+              <div class="form-group">
+                <label for="delete_password">Confirm your password</label>
+                <input type="password" id="delete_password" name="password" required>
+              </div>
+            {% endif %}
+            
+            <button type="button" class="danger-button" id="confirmDeleteBtn">Delete Account</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+  
+  <div id="confirmationModal" class="modal">
+    <div class="modal-content">
+      <span class="close-modal">&times;</span>
+      <h2>Are you absolutely sure?</h2>
+      <p>This action cannot be undone. This will permanently delete your account, remove your data and remove your content from this service.</p>
+      <div class="modal-actions">
+        <button class="cancel-button">Cancel</button>
+        <button class="danger-button" id="finalDeleteBtn">Yes, delete my account</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Tab switching
+    const tabs = document.querySelectorAll('.profile-tab');
+    const panels = document.querySelectorAll('.tab-panel');
+    
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Deactivate all tabs and panels
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        
+        // Activate clicked tab and corresponding panel
+        tab.classList.add('active');
+        const tabName = tab.getAttribute('data-tab');
+        document.getElementById(`${tabName}-panel`).classList.add('active');
+      });
+    });
+    
+    // Password matching validation
+    const newPassword = document.getElementById('new_password');
+    const confirmPassword = document.getElementById('confirm_password');
+    
+    function validatePassword() {
+      if (newPassword.value !== confirmPassword.value) {
+        confirmPassword.setCustomValidity("Passwords don't match");
+      } else {
+        confirmPassword.setCustomValidity('');
+      }
+    }
+    
+    if (newPassword && confirmPassword) {
+      newPassword.addEventListener('change', validatePassword);
+      confirmPassword.addEventListener('keyup', validatePassword);
+    }
+    
+    // Account deletion confirmation
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    const deleteForm = document.getElementById('deleteForm');
+    const modal = document.getElementById('confirmationModal');
+    const closeModalBtn = document.querySelector('.close-modal');
+    const cancelBtn = document.querySelector('.cancel-button');
+    const finalDeleteBtn = document.getElementById('finalDeleteBtn');
+    
+    confirmDeleteBtn.addEventListener('click', () => {
+      // Show the confirmation modal
+      modal.style.display = 'block';
+    });
+    
+    closeModalBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+    
+    cancelBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+    
+    finalDeleteBtn.addEventListener('click', () => {
+      // Submit the delete form
+      deleteForm.submit();
+    });
+    
+    // Close modal if clicked outside
+    window.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+    
+    // Check for flash messages
+    document.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const message = urlParams.get('message');
+      const type = urlParams.get('type') || 'info';
+      
+      if (message) {
+        const flashDiv = document.createElement('div');
+        flashDiv.className = `flash-message ${type}`;
+        flashDiv.textContent = decodeURIComponent(message);
+        
+        document.body.insertBefore(flashDiv, document.body.firstChild);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+          flashDiv.style.opacity = '0';
+          setTimeout(() => {
+            flashDiv.remove();
+          }, 500);
+        }, 5000);
+      }
+    });
+  </script>
+</body>
+</html> 

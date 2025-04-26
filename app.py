@@ -19,6 +19,9 @@ import json
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # OAuth Libraries
 from authlib.integrations.flask_client import OAuth
@@ -58,7 +61,7 @@ with app.app_context():
         print(f"Connected to MongoDB. Existing collections: {collections}")
         
         # Ensure required collections exist
-        required_collections = ["users", "search_history", "favorites"]
+        required_collections = ["users", "search_history", "favorites", "password_resets"]
         for collection in required_collections:
             if collection not in collections:
                 print(f"Creating collection: {collection}")
@@ -116,6 +119,39 @@ if apple_client_id and apple_client_secret:
         server_metadata_url="https://appleid.apple.com/.well-known/openid-configuration",
         client_kwargs={"scope": "name email"},
     )
+
+# Email configuration
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() in ('true', 'yes', '1')
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
+
+# Password reset token expiration (in seconds)
+PASSWORD_RESET_EXPIRATION = 3600  # 1 hour
+
+# Function to send email
+def send_email(to, subject, body_html):
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = app.config['MAIL_DEFAULT_SENDER']
+    msg['To'] = to
+    
+    html_part = MIMEText(body_html, 'html')
+    msg.attach(html_part)
+    
+    try:
+        server = smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT'])
+        server.ehlo()
+        server.starttls()
+        server.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
+        server.sendmail(app.config['MAIL_DEFAULT_SENDER'], to, msg.as_string())
+        server.close()
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -525,16 +561,226 @@ def handle_deep_research():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 # Authentication routes
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html")
+    if current_user.is_authenticated:
+        return redirect(url_for('profile'))
+        
+    error = None
+    
+    if request.method == 'POST':
+        email = request.form.get('email_or_username')
+        password = request.form.get('password')
+        
+        if not email or not password:
+            error = 'Email/username and password are required'
+            return render_template('login.html', error=error)
+            
+        try:
+            # Find user by email or username
+            user_data = mongo.db.users.find_one({
+                '$or': [
+                    {'email': email},
+                    {'username': email}
+                ],
+                'provider': 'local'
+            })
+            
+            if user_data and check_password_hash(user_data.get('password_hash', ''), password):
+                user = User(user_data)
+                login_user(user)
+                
+                # Update last login timestamp
+                mongo.db.users.update_one(
+                    {'_id': user_data['_id']},
+                    {'$set': {'last_login': datetime.utcnow()}}
+                )
+                
+                # Get next parameter or default to profile
+                next_page = request.args.get('next', 'profile')
+                return redirect(url_for(next_page))
+            else:
+                error = 'Invalid email/username or password'
+        except Exception as e:
+            print(f"Error during login: {str(e)}")
+            error = 'An error occurred. Please try again later.'
+    
+    return render_template('login.html', error=error)
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for('profile'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if not all([username, email, password, confirm_password]):
+            flash('All fields are required', 'error')
+            return render_template('signup.html', error='All fields are required')
+            
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('signup.html', error='Passwords do not match')
+            
+        # Check if username or email already exists
+        try:
+            existing_user = mongo.db.users.find_one({
+                '$or': [
+                    {'username': username},
+                    {'email': email}
+                ]
+            })
+            
+            if existing_user:
+                if existing_user.get('username') == username:
+                    flash('Username already taken', 'error')
+                    return render_template('signup.html', error='Username already taken')
+                else:
+                    flash('Email already registered', 'error')
+                    return render_template('signup.html', error='Email already registered')
+                    
+            # Hash the password
+            password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+            
+            # Create new user
+            new_user = {
+                'username': username,
+                'email': email,
+                'password_hash': password_hash,
+                'provider': 'local',
+                'provider_id': None,
+                'created_at': datetime.now(),
+                'picture': None,
+                'last_login': datetime.now()
+            }
+            
+            result = mongo.db.users.insert_one(new_user)
+            
+            if result.inserted_id:
+                # Create user object and login
+                new_user['_id'] = result.inserted_id
+                user = User(new_user)
+                login_user(user)
+                
+                flash('Account created successfully!', 'success')
+                return redirect(url_for('profile'))
+            else:
+                flash('Failed to create account', 'error')
+                return render_template('signup.html', error='Failed to create account')
+                
+        except Exception as e:
+            print(f"Error during signup: {str(e)}")
+            flash('An error occurred during signup', 'error')
+            return render_template('signup.html', error='An error occurred during signup')
+    
+    return render_template('signup.html')
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     session.clear()
+    flash("You have been logged out successfully", "success")
     return redirect(url_for("home"))
+
+@app.route("/account/settings")
+@login_required
+def account_settings():
+    return render_template("account_settings.html", user=current_user)
+
+@app.route("/account/update", methods=["POST"])
+@login_required
+def update_account():
+    try:
+        data = request.form
+        username = data.get("username", "").strip()
+        name = data.get("name", "").strip()
+        email = data.get("email", "").strip()
+        
+        # Update user profile
+        success, message = current_user.update_profile(
+            mongo.db,
+            username=username if username else None,
+            name=name if name else None,
+            email=email if email else None
+        )
+        
+        if success:
+            flash(message, "success")
+        else:
+            flash(message, "error")
+            
+        return redirect(url_for("account_settings"))
+        
+    except Exception as e:
+        print(f"Error updating account: {e}")
+        flash("An error occurred while updating your account", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/account/change-password", methods=["POST"])
+@login_required
+def change_password():
+    try:
+        data = request.form
+        current_password = data.get("current_password", "")
+        new_password = data.get("new_password", "")
+        confirm_password = data.get("confirm_password", "")
+        
+        # Basic validation
+        if new_password != confirm_password:
+            flash("New passwords do not match", "error")
+            return redirect(url_for("account_settings"))
+            
+        if len(new_password) < 8:
+            flash("New password must be at least 8 characters long", "error")
+            return redirect(url_for("account_settings"))
+        
+        # Change password
+        success, message = current_user.change_password(mongo.db, current_password, new_password)
+        
+        if success:
+            flash(message, "success")
+        else:
+            flash(message, "error")
+            
+        return redirect(url_for("account_settings"))
+        
+    except Exception as e:
+        print(f"Error changing password: {e}")
+        flash("An error occurred while changing your password", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/account/delete", methods=["POST"])
+@login_required
+def delete_account():
+    try:
+        # Confirm with password for email users
+        if current_user.provider == 'email':
+            password = request.form.get("password", "")
+            if not current_user.check_password(password):
+                flash("Incorrect password", "error")
+                return redirect(url_for("account_settings"))
+        
+        # Delete account
+        success, message = current_user.delete_account(mongo.db)
+        
+        if success:
+            logout_user()
+            session.clear()
+            flash(message, "success")
+            return redirect(url_for("home"))
+        else:
+            flash(message, "error")
+            return redirect(url_for("account_settings"))
+            
+    except Exception as e:
+        print(f"Error deleting account: {e}")
+        flash("An error occurred while deleting your account", "error")
+        return redirect(url_for("account_settings"))
 
 # Google login route
 @app.route("/login/google")
@@ -730,6 +976,148 @@ def remove_favorite():
 def get_recommendations():
     recommendations = Recommendation.get_recommendations(mongo.db, current_user.get_id())
     return jsonify({"recommendations": recommendations})
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        
+        if not email:
+            return render_template('forgot_password.html', error='Email is required')
+            
+        # Check if user exists
+        user = mongo.db.users.find_one({'email': email})
+        if not user:
+            # Don't reveal that the user doesn't exist for security reasons
+            return render_template('forgot_password.html', 
+                                  message='If an account with that email exists, a password reset link has been sent.')
+        
+        # Generate reset token
+        reset_token = secrets.token_urlsafe(32)
+        expiration = datetime.utcnow() + timedelta(seconds=PASSWORD_RESET_EXPIRATION)
+        
+        # Store token in database
+        mongo.db.password_resets.insert_one({
+            'email': email,
+            'token': reset_token,
+            'expires_at': expiration
+        })
+        
+        # Create reset link
+        reset_url = url_for('reset_password', token=reset_token, _external=True)
+        
+        # Send email
+        subject = "Reset Your Sentino Password"
+        html_body = f"""
+        <html>
+            <body>
+                <h2>Reset Your Password</h2>
+                <p>You've requested to reset your password. Click the link below to set a new password:</p>
+                <p><a href="{reset_url}">Reset Password</a></p>
+                <p>This link will expire in 1 hour.</p>
+                <p>If you didn't request this, please ignore this email.</p>
+                <p>Thanks,<br>The Sentino Team</p>
+            </body>
+        </html>
+        """
+        
+        if send_email(email, subject, html_body):
+            return render_template('forgot_password.html', 
+                                  message='If an account with that email exists, a password reset link has been sent.')
+        else:
+            return render_template('forgot_password.html', 
+                                  error='Failed to send reset email. Please try again later.')
+    
+    return render_template('forgot_password.html')
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    # Check if token exists and is valid
+    reset_record = mongo.db.password_resets.find_one({
+        'token': token,
+        'expires_at': {'$gt': datetime.utcnow()}
+    })
+    
+    if not reset_record:
+        flash('Password reset link is invalid or has expired')
+        return redirect(url_for('forgot_password'))
+    
+    if request.method == 'POST':
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if not password or not confirm_password:
+            return render_template('reset_password.html', token=token, error='Both fields are required')
+            
+        if password != confirm_password:
+            return render_template('reset_password.html', token=token, error='Passwords do not match')
+            
+        if len(password) < 8:
+            return render_template('reset_password.html', token=token, error='Password must be at least 8 characters')
+            
+        # Update user's password
+        user = mongo.db.users.find_one({'email': reset_record['email']})
+        
+        if not user:
+            return render_template('reset_password.html', token=token, error='User not found')
+            
+        # Hash new password
+        password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+        
+        # Update user record
+        mongo.db.users.update_one(
+            {'_id': user['_id']},
+            {'$set': {'password_hash': password_hash}}
+        )
+        
+        # Remove used token
+        mongo.db.password_resets.delete_one({'token': token})
+        
+        # Redirect to login page with success message
+        flash('Your password has been updated successfully. You can now log in with your new password.')
+        return redirect(url_for('login'))
+        
+    return render_template('reset_password.html', token=token)
+
+@app.route("/login/email", methods=["POST"])
+def email_login():
+    if current_user.is_authenticated:
+        return redirect(url_for('profile'))
+    
+    email_or_username = request.form.get('email_or_username')
+    password = request.form.get('password')
+    
+    if not email_or_username or not password:
+        return redirect(url_for('login', error='Email/username and password are required'))
+        
+    try:
+        # Find user by email or username
+        user_data = mongo.db.users.find_one({
+            '$or': [
+                {'email': email_or_username},
+                {'username': email_or_username}
+            ],
+            'provider': 'local'
+        })
+        
+        if user_data and check_password_hash(user_data.get('password_hash', ''), password):
+            user = User(user_data)
+            login_user(user)
+            
+            # Update last login timestamp
+            mongo.db.users.update_one(
+                {'_id': user_data['_id']},
+                {'$set': {'last_login': datetime.utcnow()}}
+            )
+            
+            # Get next parameter or default to profile
+            next_page = request.args.get('next', 'profile')
+            return redirect(url_for(next_page))
+        else:
+            return redirect(url_for('login', error='Invalid email/username or password'))
+    except Exception as e:
+        print(f"Error during email login: {str(e)}")
+        return redirect(url_for('login', error='An error occurred. Please try again later.'))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))

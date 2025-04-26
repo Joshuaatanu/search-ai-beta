@@ -17,6 +17,29 @@
         <p>Sign in to save your searches and get personalized recommendations</p>
       </div>
       
+      <div class="auth-form">
+        <form action="/login/email" method="POST" id="loginForm">
+          <div class="form-group">
+            <label for="email_or_username">Email or Username</label>
+            <input type="text" id="email_or_username" name="email_or_username" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+            <div class="password-actions">
+              <a href="/forgot-password" class="forgot-password">Forgot Password?</a>
+            </div>
+          </div>
+          
+          <button type="submit" class="submit-button">Sign In</button>
+        </form>
+      </div>
+      
+      <div class="auth-separator">
+        <span>OR</span>
+      </div>
+      
       <div class="auth-methods">
         <a href="/login/google" class="social-login-button google">
           <svg viewBox="0 0 24 24" width="24" height="24">
@@ -45,6 +68,7 @@
       </div>
       
       <div class="auth-footer">
+        <p>Don't have an account? <a href="/signup">Sign Up</a></p>
         <p>By continuing, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</p>
         <a href="/" class="back-home">Back to Home</a>
       </div>
@@ -61,7 +85,55 @@
       const errorDiv = document.createElement('div');
       errorDiv.className = 'auth-error';
       errorDiv.textContent = decodeURIComponent(error);
-      authCard.insertBefore(errorDiv, document.querySelector('.auth-methods'));
+      authCard.insertBefore(errorDiv, document.querySelector('.auth-form'));
+    }
+    
+    // Add client-side validation
+    const loginForm = document.getElementById('loginForm');
+    const emailOrUsername = document.getElementById('email_or_username');
+    const password = document.getElementById('password');
+    
+    loginForm.addEventListener('submit', function(e) {
+      let isValid = true;
+      
+      // Basic validation
+      if (!emailOrUsername.value.trim()) {
+        showFieldError(emailOrUsername, 'Email or username is required');
+        isValid = false;
+      } else {
+        clearFieldError(emailOrUsername);
+      }
+      
+      if (!password.value) {
+        showFieldError(password, 'Password is required');
+        isValid = false;
+      } else {
+        clearFieldError(password);
+      }
+      
+      if (!isValid) {
+        e.preventDefault();
+      }
+    });
+    
+    function showFieldError(field, message) {
+      // Remove any existing error
+      clearFieldError(field);
+      
+      // Create and add error message
+      const errorSpan = document.createElement('span');
+      errorSpan.className = 'field-error';
+      errorSpan.textContent = message;
+      field.parentNode.appendChild(errorSpan);
+      field.classList.add('input-error');
+    }
+    
+    function clearFieldError(field) {
+      const errorSpan = field.parentNode.querySelector('.field-error');
+      if (errorSpan) {
+        errorSpan.remove();
+      }
+      field.classList.remove('input-error');
     }
   </script>
 </body>

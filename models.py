@@ -3,6 +3,7 @@ from flask_login import UserMixin
 from bson.objectid import ObjectId
 from pymongo.collection import Collection
 from typing import Dict, List, Optional, Any
+from werkzeug.security import generate_password_hash, check_password_hash
 
 class User(UserMixin):
     """User model for authentication and data storage"""
@@ -15,14 +16,25 @@ class User(UserMixin):
         self.username = user_data.get('username', '')
         self.name = user_data.get('name', '')
         self.picture = user_data.get('picture', '')
-        self.provider = user_data.get('provider', '')  # google, apple, github
+        self.provider = user_data.get('provider', '')  # google, apple, github, email
         self.provider_id = user_data.get('provider_id', '')
+        self.password_hash = user_data.get('password_hash', '')
         self.created_at = user_data.get('created_at', datetime.utcnow())
         self.last_login = user_data.get('last_login', datetime.utcnow())
         self.preferences = user_data.get('preferences', {})
     
     def get_id(self):
         return str(self._id)
+    
+    def set_password(self, password):
+        """Set password hash for email/password authentication"""
+        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
+    
+    def check_password(self, password):
+        """Check password for email/password authentication"""
+        if not self.password_hash:
+            return False
+        return check_password_hash(self.password_hash, password)
     
     @classmethod
     def get_by_id(cls, db, user_id):
@@ -49,6 +61,18 @@ class User(UserMixin):
             return None
     
     @classmethod
+    def get_by_username(cls, db, username):
+        try:
+            if db is None:
+                print("Warning: Database connection not available in get_by_username")
+                return None
+            user_data = db.users.find_one({'username': username})
+            return cls(user_data) if user_data else None
+        except Exception as e:
+            print(f"Error in get_by_username: {e}")
+            return None
+    
+    @classmethod
     def get_by_provider_id(cls, db, provider, provider_id):
         try:
             if db is None:
@@ -59,6 +83,43 @@ class User(UserMixin):
         except Exception as e:
             print(f"Error in get_by_provider_id: {e}")
             return None
+            
+    @classmethod
+    def create_user(cls, db, email, username, password, name=''):
+        """Create a new user with email/password authentication"""
+        try:
+            if db is None:
+                print("Warning: Database connection not available in create_user")
+                return None
+                
+            # Check if user with this email already exists
+            if db.users.find_one({'email': email}):
+                return None, "Email already in use"
+                
+            # Check if username is taken
+            if db.users.find_one({'username': username}):
+                return None, "Username already taken"
+            
+            user_data = {
+                'email': email,
+                'username': username,
+                'name': name or username,
+                'picture': '',
+                'provider': 'email',
+                'provider_id': email,
+                'password_hash': generate_password_hash(password, method='pbkdf2:sha256'),
+                'created_at': datetime.utcnow(),
+                'last_login': datetime.utcnow(),
+                'preferences': {}
+            }
+            
+            result = db.users.insert_one(user_data)
+            user_data['_id'] = result.inserted_id
+            return cls(user_data), None
+            
+        except Exception as e:
+            print(f"Error creating user: {e}")
+            return None, f"Database error: {str(e)}"
 
     def save(self, db):
         """Save or update user in the database"""
@@ -75,6 +136,7 @@ class User(UserMixin):
                     'picture': self.picture,
                     'provider': self.provider,
                     'provider_id': self.provider_id,
+                    'password_hash': self.password_hash,
                     'created_at': datetime.utcnow(),
                     'last_login': datetime.utcnow(),
                     'preferences': self.preferences
@@ -89,6 +151,7 @@ class User(UserMixin):
                         'username': self.username,
                         'name': self.name,
                         'picture': self.picture,
+                        'password_hash': self.password_hash,
                         'last_login': datetime.utcnow(),
                         'preferences': self.preferences
                     }}
@@ -97,6 +160,97 @@ class User(UserMixin):
         except Exception as e:
             print(f"Error saving user: {e}")
             return self
+            
+    def update_profile(self, db, username=None, name=None, email=None, preferences=None):
+        """Update user profile data"""
+        try:
+            if db is None:
+                print("Warning: Database connection not available in update_profile")
+                return False, "Database connection error"
+                
+            update_data = {}
+            
+            # Check username availability if changing
+            if username and username != self.username:
+                if db.users.find_one({'username': username, '_id': {'$ne': self._id}}):
+                    return False, "Username already taken"
+                update_data['username'] = username
+                self.username = username
+                
+            # Check email availability if changing
+            if email and email != self.email:
+                if db.users.find_one({'email': email, '_id': {'$ne': self._id}}):
+                    return False, "Email already in use"
+                update_data['email'] = email
+                self.email = email
+                
+            # Update name if provided
+            if name:
+                update_data['name'] = name
+                self.name = name
+                
+            # Update preferences if provided
+            if preferences:
+                merged_prefs = {**self.preferences, **preferences}
+                update_data['preferences'] = merged_prefs
+                self.preferences = merged_prefs
+                
+            if update_data:
+                db.users.update_one(
+                    {'_id': self._id},
+                    {'$set': update_data}
+                )
+                
+            return True, "Profile updated successfully"
+        except Exception as e:
+            print(f"Error updating profile: {e}")
+            return False, f"Error updating profile: {str(e)}"
+            
+    def delete_account(self, db):
+        """Delete user account and associated data"""
+        try:
+            if db is None:
+                print("Warning: Database connection not available in delete_account")
+                return False, "Database connection error"
+                
+            # Delete user data
+            db.search_history.delete_many({'user_id': self._id})
+            db.favorites.delete_many({'user_id': self._id})
+            db.users.delete_one({'_id': self._id})
+            
+            return True, "Account deleted successfully"
+        except Exception as e:
+            print(f"Error deleting account: {e}")
+            return False, f"Error deleting account: {str(e)}"
+            
+    def change_password(self, db, current_password, new_password):
+        """Change user password (for email/password auth)"""
+        try:
+            if db is None:
+                print("Warning: Database connection not available in change_password")
+                return False, "Database connection error"
+                
+            # For OAuth users without password
+            if self.provider != 'email' and not self.password_hash:
+                self.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+                self.save(db)
+                return True, "Password set successfully"
+                
+            # Verify current password
+            if not self.check_password(current_password):
+                return False, "Current password is incorrect"
+                
+            # Update password
+            self.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+            db.users.update_one(
+                {'_id': self._id},
+                {'$set': {'password_hash': self.password_hash}}
+            )
+            
+            return True, "Password changed successfully"
+        except Exception as e:
+            print(f"Error changing password: {e}")
+            return False, f"Error changing password: {str(e)}"
 
 class SearchHistory:
     """Model for tracking user search history"""
