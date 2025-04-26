@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Set Up Two-Factor Authentication - Sentino AI</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/auth.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+  <header>
+    <div class="logo">Sentino AI</div>
+    <nav>
+      <ul>
+        <li><a href="/" class="nav-link">Home</a></li>
+        <li><a href="/profile" class="nav-link">Profile</a></li>
+        <li><a href="/account/settings" class="nav-link">Settings</a></li>
+      </ul>
+    </nav>
+    <a href="/logout" class="logout-button">Logout</a>
+  </header>
+  
+  <main class="profile-container">
+    <div class="settings-card">
+      <h1>Set Up Two-Factor Authentication</h1>
+      <p>Follow these steps to add an extra layer of security to your account.</p>
+      
+      <div class="setup-steps">
+        <div class="setup-step">
+          <h2>1. Download an Authenticator App</h2>
+          <p>If you don't already have one, download an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator.</p>
+          
+          <div class="app-buttons">
+            <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" class="app-button">
+              <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="40">
+            </a>
+            <a href="https://apps.apple.com/us/app/google-authenticator/id388497605" target="_blank" class="app-button">
+              <img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-app-store.svg" alt="Download on the App Store" height="40">
+            </a>
+          </div>
+        </div>
+        
+        <div class="setup-step">
+          <h2>2. Scan the QR Code</h2>
+          <p>Open your authenticator app and scan this QR code:</p>
+          
+          <div class="qr-container">
+            <!-- In a real implementation, this would be a dynamically generated QR code for the user -->
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=otpauth://totp/Sentino:{{ user.email }}?secret=JBSWY3DPEHPK3PXP&issuer=Sentino&algorithm=SHA1&digits=6&period=30" alt="QR Code for 2FA" class="qr-code">
+          </div>
+          
+          <div class="manual-code">
+            <p>If you can't scan the QR code, enter this code manually:</p>
+            <code class="secret-key">JBSWY3DPEHPK3PXP</code>
+            <button class="copy-button" id="copySecret">Copy</button>
+          </div>
+        </div>
+        
+        <div class="setup-step">
+          <h2>3. Verify Setup</h2>
+          <p>Enter the 6-digit code from your authenticator app to verify the setup:</p>
+          
+          <form action="/account/verify-2fa" method="POST" class="verification-form">
+            <div class="form-group">
+              <input type="text" name="verification_code" id="verification_code" placeholder="000000" maxlength="6" class="verification-input" required>
+            </div>
+            
+            <div class="form-actions">
+              <a href="/account/settings" class="cancel-button">Cancel</a>
+              <button type="submit" class="submit-button">Verify and Enable</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+      <div class="setup-note">
+        <h3>Important</h3>
+        <p>Please save your recovery codes in a safe place. You will need them if you lose access to your authenticator app.</p>
+        <div class="recovery-codes">
+          <code>ABCD-EFGH-IJKL</code>
+          <code>MNOP-QRST-UVWX</code>
+          <code>YZAB-CDEF-GHIJ</code>
+          <code>KLMN-OPQR-STUV</code>
+          <code>WXYZ-1234-5678</code>
+        </div>
+        <button class="action-button" id="downloadCodes">Download Recovery Codes</button>
+      </div>
+    </div>
+  </main>
+  
+  <script>
+    // Copy secret key to clipboard
+    document.getElementById('copySecret').addEventListener('click', function() {
+      const secretKey = document.querySelector('.secret-key').textContent;
+      navigator.clipboard.writeText(secretKey).then(function() {
+        const button = document.getElementById('copySecret');
+        button.textContent = 'Copied!';
+        setTimeout(function() {
+          button.textContent = 'Copy';
+        }, 2000);
+      });
+    });
+    
+    // Download recovery codes
+    document.getElementById('downloadCodes').addEventListener('click', function() {
+      const codes = Array.from(document.querySelectorAll('.recovery-codes code')).map(code => code.textContent).join('\n');
+      const blob = new Blob([`Sentino Recovery Codes\n\nKeep these codes safe and secure. You will need them if you lose access to your authenticator app.\n\n${codes}`], {type: 'text/plain'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sentino_recovery_codes.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    
+    // Improve UX for verification code input
+    const verificationInput = document.getElementById('verification_code');
+    verificationInput.addEventListener('input', function() {
+      // Only allow digits
+      this.value = this.value.replace(/\D/g, '');
+      
+      // Auto-submit when 6 digits are entered
+      if (this.value.length === 6) {
+        document.querySelector('.verification-form').submit();
+      }
+    });
+  </script>
+</body>
+</html> 

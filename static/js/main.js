@@ -226,6 +226,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     function renderAcademicResults(data, container, originalQuery) {
+        // Debug log to see paper structure
+        console.log("Academic papers data:", data.papers);
+        
         let html = `
             <div class="results-header">
                 <h2>Academic Research: ${escapeHtml(data.query || "N/A")}</h2>
@@ -259,10 +262,187 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             
             html += `</div></div>`;
+            
+            // Add Visualization Section
+            html += `
+                <div class="viz-container">
+                    <div class="viz-header">
+                        <div class="viz-title">Research Visualizations</div>
+                        <div class="viz-actions">
+                            <button class="viz-button" id="exportViz">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Export
+                            </button>
+                        </div>
+                    </div>
+                    <div class="viz-tabs">
+                        <div class="viz-tab active" data-viz="network">Citation Network</div>
+                        <div class="viz-tab" data-viz="timeline">Research Timeline</div>
+                        <div class="viz-tab" data-viz="authors">Author Collaboration</div>
+                    </div>
+                    <div class="viz-content">
+                        <div class="viz-loading">
+                            <div class="spinner"></div>
+                            <span>Loading visualization...</span>
+                        </div>
+                    </div>
+                    <div class="viz-description">
+                        <p>This visualization helps you understand relationships between papers based on their citations. Hover over elements to see detailed information.</p>
+                    </div>
+                </div>
+            `;
         }
         
         html += `</div>`;
         container.innerHTML = html;
+        
+        // If papers exist, load visualizations
+        if (data.papers && data.papers.length > 0) {
+            loadVisualization('network', data.papers);
+            
+            // Add event listeners for visualization tabs
+            document.querySelectorAll('.viz-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Update active tab
+                    document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    // Load the corresponding visualization
+                    const vizType = tab.getAttribute('data-viz');
+                    loadVisualization(vizType, data.papers);
+                    
+                    // Update description
+                    const descriptions = {
+                        'network': 'This visualization helps you understand relationships between papers based on their citations. Hover over elements to see detailed information.',
+                        'timeline': 'This timeline shows the progression of research on this topic over time. Explore how the field has evolved.',
+                        'authors': 'This network displays collaboration relationships between authors. Larger nodes represent authors with more papers.'
+                    };
+                    document.querySelector('.viz-description p').textContent = descriptions[vizType];
+                });
+            });
+            
+            // Export button event listener
+            document.getElementById('exportViz').addEventListener('click', () => {
+                const activeVizType = document.querySelector('.viz-tab.active').getAttribute('data-viz');
+                exportVisualization(activeVizType);
+            });
+        }
+    }
+    
+    // Function to load visualizations from the server
+    async function loadVisualization(vizType, papers) {
+        const vizContent = document.querySelector('.viz-content');
+        vizContent.innerHTML = `
+            <div class="viz-loading">
+                <div class="spinner"></div>
+                <span>Loading visualization...</span>
+            </div>
+        `;
+        
+        try {
+            const response = await fetch('/api/academic/visualizations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    type: vizType,
+                    papers: papers.map(paper => {
+                        // Try to extract year from published string (e.g., "2022-01-01" -> 2022)
+                        let publishedYear = null;
+                        if (paper.published) {
+                            const yearMatch = paper.published.match(/\d{4}/);
+                            if (yearMatch) {
+                                publishedYear = parseInt(yearMatch[0]);
+                            }
+                        }
+                        
+                        // Convert authors string to list format for the author visualization
+                        let authorsList = [];
+                        if (paper.authors) {
+                            const authorNames = paper.authors.split(',').map(a => a.trim());
+                            authorsList = authorNames.map(name => ({ name }));
+                        }
+                        
+                        return {
+                            title: paper.title,
+                            authors: paper.authors,
+                            authors_list: authorsList,
+                            published: paper.published,
+                            published_year: publishedYear,
+                            summary: paper.summary,
+                            pdf_url: paper.pdf_url,
+                            arxiv_id: paper.id || paper.entry_id || paper.title.substring(0, 20).replace(/\s+/g, '-').toLowerCase()
+                        };
+                    })
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load visualization: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Create a container for the visualization
+            vizContent.innerHTML = `<div id="${vizType}-container" class="${vizType}-container"></div>`;
+            
+            // The backend now returns direct data and layout objects
+            if (data.data && data.layout) {
+                Plotly.newPlot(
+                    `${vizType}-container`, 
+                    data.data, 
+                    data.layout, 
+                    {responsive: true}
+                );
+            } else {
+                throw new Error("No visualization data received from server");
+            }
+            
+        } catch (error) {
+            console.error("Visualization error:", error);
+            vizContent.innerHTML = `
+                <div class="viz-placeholder">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <h3>Visualization unavailable</h3>
+                    <p>${error.message || "Could not generate visualization. Try searching for a topic with more papers."}</p>
+                    <p>Try searching for a topic with more papers (5-7 minimum) for better visualizations.</p>
+                </div>
+            `;
+        }
+    }
+
+    // Function to export visualization as image
+    function exportVisualization(vizType) {
+        const vizElement = document.getElementById(`${vizType}-container`);
+        if (!vizElement) return;
+        
+        Plotly.toImage(vizElement, {
+            format: 'png',
+            height: 800,
+            width: 1200
+        }).then(function(dataUrl) {
+            // Create a download link
+            const downloadLink = document.createElement('a');
+            downloadLink.href = dataUrl;
+            downloadLink.download = `sentino-${vizType}-visualization.png`;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+        }).catch(function(error) {
+            console.error('Error exporting visualization:', error);
+            alert('Failed to export visualization. Please try again.');
+        });
     }
     
     // Check for URL parameters to handle searches from history/favorites
@@ -316,4 +496,54 @@ function escapeHtml(text) {
     const element = document.createElement("div");
     element.innerText = text;
     return element.innerHTML;
+}
+
+// Global function for adding favorites (called from HTML)
+window.addFavorite = function(query, searchType, result = null) {
+    // Check if user is authenticated by looking for a user profile link
+    const isAuthenticated = document.querySelector('.user-profile') !== null;
+    
+    if (isAuthenticated) {
+        const favoritePrompt = document.getElementById('save-favorite-modal');
+        if (favoritePrompt) {
+            // Show the save favorite modal
+            favoritePrompt.style.display = 'block';
+            favoritePrompt.querySelector('input[name="query"]').value = query;
+            favoritePrompt.querySelector('input[name="search_type"]').value = searchType;
+        } else {
+            // Fallback to prompt
+            const name = prompt('Enter a name for this favorite:', query);
+            if (name) {
+                saveFavorite(name, query, searchType, result);
+            }
+        }
+    } else {
+        if (confirm('You need to be logged in to save favorites. Would you like to login now?')) {
+            window.location.href = '/login';
+        }
+    }
+}
+
+function saveFavorite(name, query, searchType, result = null) {
+    fetch('/api/favorites/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name,
+            query,
+            search_type: searchType,
+            result
+        })
+    })
+    .then(response => {
+        if (response.ok) {
+            alert('Added to favorites!');
+        } else {
+            alert('Failed to add to favorites');
+        }
+    })
+    .catch(error => {
+        console.error('Error adding favorite:', error);
+        alert('An error occurred');
+    });
 }

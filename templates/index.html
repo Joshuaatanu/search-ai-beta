@@ -3,19 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sentino AI</title>
+  <title>Sentino AI - Intelligent Research and Analysis</title>
   <link rel="stylesheet" href="/static/css/style.css">
-  <script defer src="/static/js/main.js"></script>
-  <meta name="description" content="AI Search Interface for Sentino">
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 </head>
 <body>
   <header>
     <div class="logo">Sentino AI</div>
     <nav>
       <ul>
-        <li><a href="#" class="nav-link active" data-view="search">Quick Search</a></li>
+        <li><a href="#" class="nav-link" data-view="welcome">Home</a></li>
+        <li><a href="#" class="nav-link" data-view="search">Quick Search</a></li>
         <li><a href="#" class="nav-link" data-view="deep-analysis">Deep Analysis</a></li>
         <li><a href="#" class="nav-link" data-view="academic">Academic Research</a></li>
       </ul>
@@ -144,77 +143,11 @@
     </div>
   </footer>
 
+  <!-- JavaScript Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.29.0.min.js"></script>
   
-  <script>
-    // Check for URL parameters to handle searches from history/favorites
-    document.addEventListener('DOMContentLoaded', function() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const query = urlParams.get('query');
-      const type = urlParams.get('type');
-      
-      if (query) {
-        // Handle the search based on the type
-        switch (type) {
-          case 'deep':
-            document.querySelector('.nav-link[data-view="deep-analysis"]').click();
-            const deepInput = document.getElementById('deepAnalysisInput');
-            deepInput.value = query;
-            document.getElementById('deepAnalysisForm').dispatchEvent(new Event('submit'));
-            break;
-          
-          case 'academic':
-            document.querySelector('.nav-link[data-view="academic"]').click();
-            const academicInput = document.getElementById('academicInput');
-            academicInput.value = query;
-            document.getElementById('academicForm').dispatchEvent(new Event('submit'));
-            break;
-          
-          default: // 'quick' or any other value
-            document.querySelector('.nav-link[data-view="search"]').click();
-            const searchInput = document.getElementById('searchInput');
-            searchInput.value = query;
-            document.getElementById('searchForm').dispatchEvent(new Event('submit'));
-        }
-        
-        // Clean the URL without reloading the page
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    });
-    
-    // Add functionality to save search to favorites
-    function addFavorite(query, searchType, result = null) {
-      {% if current_user.is_authenticated %}
-        const name = prompt('Enter a name for this favorite:', query);
-        if (name) {
-          fetch('/api/favorites/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name,
-              query,
-              search_type: searchType,
-              result
-            })
-          })
-          .then(response => {
-            if (response.ok) {
-              alert('Added to favorites!');
-            } else {
-              alert('Failed to add to favorites');
-            }
-          })
-          .catch(error => {
-            console.error('Error adding favorite:', error);
-            alert('An error occurred');
-          });
-        }
-      {% else %}
-        if (confirm('You need to be logged in to save favorites. Would you like to login now?')) {
-          window.location.href = '/login';
-        }
-      {% endif %}
-    }
-  </script>
+  <!-- Main JavaScript -->
+  <script src="/static/js/main.js"></script>
 </body>
 </html>

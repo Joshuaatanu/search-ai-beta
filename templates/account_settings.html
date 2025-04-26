@@ -44,6 +44,11 @@
     
     <div class="profile-tabs">
       <div class="profile-tab active" data-tab="profile">Profile Information</div>
+      <div class="profile-tab" data-tab="theme">Theme</div>
+      <div class="profile-tab" data-tab="search">Search</div>
+      <div class="profile-tab" data-tab="privacy">Privacy</div>
+      <div class="profile-tab" data-tab="security">Security</div>
+      <div class="profile-tab" data-tab="notifications">Notifications</div>
       <div class="profile-tab" data-tab="password">Password</div>
       <div class="profile-tab" data-tab="danger">Danger Zone</div>
     </div>
@@ -73,6 +78,223 @@
             </div>
             
             <button type="submit" class="submit-button">Update Profile</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Theme Customization Tab -->
+      <div class="tab-panel" id="theme-panel">
+        <div class="settings-card">
+          <h2>Theme Customization</h2>
+          <form action="/account/update-preferences" method="POST">
+            <input type="hidden" name="preference_type" value="theme">
+            
+            <div class="form-group">
+              <label>Theme Mode</label>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input type="radio" name="theme_mode" value="light" {% if not user.preferences.get('theme_mode') or user.preferences.get('theme_mode') == 'light' %}checked{% endif %}>
+                  Light
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="theme_mode" value="dark" {% if user.preferences.get('theme_mode') == 'dark' %}checked{% endif %}>
+                  Dark
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="theme_mode" value="system" {% if user.preferences.get('theme_mode') == 'system' %}checked{% endif %}>
+                  Follow System
+                </label>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="accent_color">Accent Color</label>
+              <div class="color-picker-container">
+                <input type="color" id="accent_color" name="accent_color" value="{{ user.preferences.get('accent_color', '#007bff') }}">
+                <span class="color-value">#007bff</span>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="font_size">Font Size</label>
+              <select id="font_size" name="font_size" class="form-select">
+                <option value="small" {% if user.preferences.get('font_size') == 'small' %}selected{% endif %}>Small</option>
+                <option value="medium" {% if not user.preferences.get('font_size') or user.preferences.get('font_size') == 'medium' %}selected{% endif %}>Medium</option>
+                <option value="large" {% if user.preferences.get('font_size') == 'large' %}selected{% endif %}>Large</option>
+              </select>
+            </div>
+            
+            <button type="submit" class="submit-button">Update Theme Settings</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Search Preferences Tab -->
+      <div class="tab-panel" id="search-panel">
+        <div class="settings-card">
+          <h2>Search Preferences</h2>
+          <form action="/account/update-preferences" method="POST">
+            <input type="hidden" name="preference_type" value="search">
+            
+            <div class="form-group">
+              <label>Default Search Type</label>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input type="radio" name="default_search_type" value="quick" {% if not user.preferences.get('default_search_type') or user.preferences.get('default_search_type') == 'quick' %}checked{% endif %}>
+                  Quick Search
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="default_search_type" value="deep" {% if user.preferences.get('default_search_type') == 'deep' %}checked{% endif %}>
+                  Deep Analysis
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="default_search_type" value="academic" {% if user.preferences.get('default_search_type') == 'academic' %}checked{% endif %}>
+                  Academic
+                </label>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="results_per_page">Results Per Page</label>
+              <select id="results_per_page" name="results_per_page" class="form-select">
+                <option value="3" {% if user.preferences.get('results_per_page') == 3 %}selected{% endif %}>3 results</option>
+                <option value="5" {% if not user.preferences.get('results_per_page') or user.preferences.get('results_per_page') == 5 %}selected{% endif %}>5 results</option>
+                <option value="10" {% if user.preferences.get('results_per_page') == 10 %}selected{% endif %}>10 results</option>
+              </select>
+            </div>
+            
+            <div class="checkbox-group">
+              <input type="checkbox" id="auto_save_searches" name="auto_save_searches" {% if user.preferences.get('auto_save_searches', True) %}checked{% endif %}>
+              <label for="auto_save_searches">Automatically save searches to history</label>
+            </div>
+            
+            <button type="submit" class="submit-button">Update Search Settings</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Privacy Settings Tab -->
+      <div class="tab-panel" id="privacy-panel">
+        <div class="settings-card">
+          <h2>Privacy Settings</h2>
+          <form action="/account/update-preferences" method="POST">
+            <input type="hidden" name="preference_type" value="privacy">
+            
+            <div class="form-group">
+              <label for="history_retention">Search History Retention</label>
+              <select id="history_retention" name="history_retention" class="form-select">
+                <option value="30" {% if user.preferences.get('history_retention') == 30 %}selected{% endif %}>30 days</option>
+                <option value="90" {% if not user.preferences.get('history_retention') or user.preferences.get('history_retention') == 90 %}selected{% endif %}>90 days</option>
+                <option value="365" {% if user.preferences.get('history_retention') == 365 %}selected{% endif %}>1 year</option>
+                <option value="0" {% if user.preferences.get('history_retention') == 0 %}selected{% endif %}>Forever</option>
+              </select>
+            </div>
+            
+            <div class="checkbox-group">
+              <input type="checkbox" id="allow_recommendations" name="allow_recommendations" {% if user.preferences.get('allow_recommendations', True) %}checked{% endif %}>
+              <label for="allow_recommendations">Allow personalized recommendations based on search history</label>
+            </div>
+            
+            <div class="checkbox-group">
+              <input type="checkbox" id="share_usage_data" name="share_usage_data" {% if user.preferences.get('share_usage_data', True) %}checked{% endif %}>
+              <label for="share_usage_data">Share anonymous usage data to improve the service</label>
+            </div>
+            
+            <button type="submit" class="submit-button">Update Privacy Settings</button>
+          </form>
+          
+          <div class="settings-action">
+            <h3>Download Your Data</h3>
+            <p>You can download all data associated with your account, including profile information, search history, and favorites.</p>
+            <a href="/account/download-data" class="action-button">Download Data (GDPR)</a>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Security Tab -->
+      <div class="tab-panel" id="security-panel">
+        <div class="settings-card">
+          <h2>Account Security</h2>
+          
+          <div class="settings-section">
+            <h3>Two-Factor Authentication</h3>
+            <p>Add an extra layer of security to your account by enabling two-factor authentication.</p>
+            
+            <div class="toggle-container">
+              <label class="toggle-switch">
+                <input type="checkbox" id="two_factor_toggle" {% if user.preferences.get('two_factor_enabled') %}checked{% endif %}>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label">{% if user.preferences.get('two_factor_enabled') %}Enabled{% else %}Disabled{% endif %}</span>
+            </div>
+            
+            <div id="two_factor_setup" class="{% if not user.preferences.get('two_factor_enabled') %}hidden{% endif %}">
+              <button type="button" class="action-button" id="setup_2fa_button">Setup Two-Factor Authentication</button>
+            </div>
+          </div>
+          
+          <div class="settings-section">
+            <h3>Login Activity</h3>
+            <p>Review your recent login activity and manage your active sessions.</p>
+            
+            <div class="login-activity">
+              <div class="activity-item">
+                <div class="activity-details">
+                  <span class="activity-device">Chrome on Windows</span>
+                  <span class="activity-location">New York, USA</span>
+                  <span class="activity-time">Current session</span>
+                </div>
+                <span class="activity-status current">This Device</span>
+              </div>
+              
+              <!-- Additional sessions would be dynamically added here -->
+            </div>
+            
+            <button type="button" class="action-button danger-action" id="logout_all_button">Logout from All Devices</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Notifications Tab -->
+      <div class="tab-panel" id="notifications-panel">
+        <div class="settings-card">
+          <h2>Notification Settings</h2>
+          <form action="/account/update-preferences" method="POST">
+            <input type="hidden" name="preference_type" value="notifications">
+            
+            <div class="settings-section">
+              <h3>Email Notifications</h3>
+              
+              <div class="checkbox-group">
+                <input type="checkbox" id="email_new_recommendations" name="email_new_recommendations" {% if user.preferences.get('email_new_recommendations', True) %}checked{% endif %}>
+                <label for="email_new_recommendations">Send me emails about new recommendations</label>
+              </div>
+              
+              <div class="checkbox-group">
+                <input type="checkbox" id="email_security_alerts" name="email_security_alerts" {% if user.preferences.get('email_security_alerts', True) %}checked{% endif %}>
+                <label for="email_security_alerts">Send me security alerts (suspicious login attempts, etc.)</label>
+              </div>
+              
+              <div class="checkbox-group">
+                <input type="checkbox" id="email_product_updates" name="email_product_updates" {% if user.preferences.get('email_product_updates', True) %}checked{% endif %}>
+                <label for="email_product_updates">Send me product updates and announcements</label>
+              </div>
+            </div>
+            
+            <div class="settings-section">
+              <h3>Notification Frequency</h3>
+              
+              <div class="form-group">
+                <label for="notification_frequency">Email Frequency</label>
+                <select id="notification_frequency" name="notification_frequency" class="form-select">
+                  <option value="immediate" {% if user.preferences.get('notification_frequency') == 'immediate' %}selected{% endif %}>Immediate</option>
+                  <option value="daily" {% if not user.preferences.get('notification_frequency') or user.preferences.get('notification_frequency') == 'daily' %}selected{% endif %}>Daily Digest</option>
+                  <option value="weekly" {% if user.preferences.get('notification_frequency') == 'weekly' %}selected{% endif %}>Weekly Summary</option>
+                </select>
+              </div>
+            </div>
+            
+            <button type="submit" class="submit-button">Update Notification Settings</button>
           </form>
         </div>
       </div>

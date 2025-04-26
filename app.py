@@ -23,6 +23,16 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# Visualization libraries
+import pandas as pd
+import networkx as nx
+from scholarly import scholarly
+from urllib.parse import urlparse, parse_qs
+import plotly
+import plotly.graph_objects as go
+import plotly.express as px
+import random  # Added for random simulation in visualizations
+
 # OAuth Libraries
 from authlib.integrations.flask_client import OAuth
 import google_auth_oauthlib.flow
@@ -378,6 +388,7 @@ def query_arxiv(query, max_results=3):
     """
     Searches arXiv for academic papers based on the query.
     Returns a list of paper details including title, authors, summary, and PDF URL.
+    Now with enhanced metadata for visualizations.
     """
     try:
         print(f"Querying arXiv with: {query}")
@@ -405,27 +416,69 @@ def query_arxiv(query, max_results=3):
         # Execute the search and collect results
         print("Executing arXiv search...")
         papers = []
+        paper_ids = []  # Keep track of IDs to avoid duplicates
+        
         for result in client.results(search):
             try:
+                # Skip if we already have this paper
+                if result.entry_id in paper_ids:
+                    continue
+                    
+                paper_ids.append(result.entry_id)
+                
                 # Extract publication date safely
                 try:
                     published_date = result.published.strftime("%Y-%m-%d") if result.published else "Unknown"
+                    published_year = result.published.year if result.published else None
                 except:
                     published_date = "Unknown"
+                    published_year = None
                 
                 # Extract authors safely
                 try:
+                    authors_list = [{"name": author.name} for author in result.authors] if result.authors else []
                     authors = ", ".join(author.name for author in result.authors) if result.authors else "Unknown"
                 except:
+                    authors_list = []
                     authors = "Unknown"
+                
+                # Extract categories
+                try:
+                    categories = result.categories if hasattr(result, 'categories') else []
+                except:
+                    categories = []
+                
+                # Try to extract citation count and references (using pattern matching as a fallback since arXiv doesn't directly provide this)
+                citations = []
+                references = []
+                
+                # Get arXiv ID
+                arxiv_id = result.entry_id.split("/")[-1] if result.entry_id else "unknown"
+                
+                # Extract DOI if available
+                doi = None
+                if hasattr(result, 'doi') and result.doi:
+                    doi = result.doi
+                elif result.entry_id:
+                    # Try to find DOI in the summary
+                    doi_match = re.search(r'(doi:|DOI:)\s*([^\s]+)', result.summary or '')
+                    if doi_match:
+                        doi = doi_match.group(2)
                 
                 paper = {
                     "title": result.title or "Unknown Title",
                     "authors": authors,
+                    "authors_list": authors_list,
                     "summary": result.summary or "No summary available",
                     "pdf_url": result.pdf_url or "#",
                     "published": published_date,
-                    "arxiv_id": result.entry_id.split("/")[-1] if result.entry_id else "unknown"
+                    "published_year": published_year,
+                    "arxiv_id": arxiv_id,
+                    "categories": categories,
+                    "citations": citations,
+                    "references": references,
+                    "doi": doi,
+                    "url": result.entry_id
                 }
                 papers.append(paper)
                 print(f"Found paper: {paper['title']}")
@@ -434,6 +487,29 @@ def query_arxiv(query, max_results=3):
                 continue
         
         print(f"Found {len(papers)} papers")
+        # Add simplified citation network data
+        try:
+            # For each paper, simulate relations to other papers
+            # In a real implementation, this would use actual citation data
+            for i, paper in enumerate(papers):
+                # Randomly select papers that might be related to this one
+                for j, other_paper in enumerate(papers):
+                    if i != j:
+                        # Create artificial citation info for visualization purposes
+                        if paper["published_year"] and other_paper["published_year"]:
+                            if paper["published_year"] > other_paper["published_year"]:
+                                # This paper might cite an older paper
+                                paper["references"].append({
+                                    "title": other_paper["title"],
+                                    "arxiv_id": other_paper["arxiv_id"]
+                                })
+                                other_paper["citations"].append({
+                                    "title": paper["title"],
+                                    "arxiv_id": paper["arxiv_id"]
+                                })
+        except Exception as e:
+            print(f"Error building citation relationships: {str(e)}")
+            
         return papers
     except Exception as e:
         print(f"arXiv search error: {str(e)}")
@@ -1118,6 +1194,593 @@ def email_login():
     except Exception as e:
         print(f"Error during email login: {str(e)}")
         return redirect(url_for('login', error='An error occurred. Please try again later.'))
+
+@app.route("/account/update-preferences", methods=["POST"])
+@login_required
+def update_preferences():
+    try:
+        data = request.form
+        preference_type = data.get("preference_type")
+        preferences = {}
+        
+        # Theme preferences
+        if preference_type == "theme":
+            preferences = {
+                "theme_mode": data.get("theme_mode", "light"),
+                "accent_color": data.get("accent_color", "#007bff"),
+                "font_size": data.get("font_size", "medium")
+            }
+        
+        # Search preferences
+        elif preference_type == "search":
+            preferences = {
+                "default_search_type": data.get("default_search_type", "quick"),
+                "results_per_page": int(data.get("results_per_page", 5)),
+                "auto_save_searches": "auto_save_searches" in data
+            }
+        
+        # Privacy preferences
+        elif preference_type == "privacy":
+            preferences = {
+                "history_retention": int(data.get("history_retention", 90)),
+                "allow_recommendations": "allow_recommendations" in data,
+                "share_usage_data": "share_usage_data" in data
+            }
+        
+        # Notification preferences
+        elif preference_type == "notifications":
+            preferences = {
+                "email_new_recommendations": "email_new_recommendations" in data,
+                "email_security_alerts": "email_security_alerts" in data,
+                "email_product_updates": "email_product_updates" in data,
+                "notification_frequency": data.get("notification_frequency", "daily")
+            }
+        
+        # Update user preferences
+        if preferences:
+            # Namespace the preferences under their type
+            namespaced_prefs = {
+                preference_type: preferences
+            }
+            
+            success, message = current_user.update_profile(
+                mongo.db,
+                preferences=namespaced_prefs
+            )
+            
+            if success:
+                flash(f"Your {preference_type} preferences have been updated", "success")
+            else:
+                flash(message, "error")
+        
+        return redirect(url_for("account_settings"))
+        
+    except Exception as e:
+        print(f"Error updating preferences: {e}")
+        flash("An error occurred while updating your preferences", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/account/toggle-2fa", methods=["POST"])
+@login_required
+def toggle_two_factor():
+    try:
+        data = request.json
+        enabled = data.get("enabled", False)
+        
+        # Update preferences
+        preferences = {
+            "security": {
+                "two_factor_enabled": enabled
+            }
+        }
+        
+        success, message = current_user.update_profile(
+            mongo.db,
+            preferences=preferences
+        )
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Two-factor authentication " + ("enabled" if enabled else "disabled")
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": message
+            }), 400
+            
+    except Exception as e:
+        print(f"Error toggling 2FA: {e}")
+        return jsonify({
+            "success": False,
+            "message": "An error occurred while updating two-factor authentication"
+        }), 500
+
+@app.route("/account/setup-2fa", methods=["GET"])
+@login_required
+def setup_two_factor():
+    # In a real implementation, this would generate a QR code for the user's authenticator app
+    # For this demo, we'll just show a mock setup page
+    return render_template("setup_2fa.html", user=current_user)
+
+@app.route("/account/verify-2fa", methods=["POST"])
+@login_required
+def verify_two_factor():
+    try:
+        code = request.form.get("verification_code")
+        
+        # In a real implementation, this would verify the code against the user's 2FA secret
+        # For this demo, we'll just accept any 6-digit code
+        if code and len(code) == 6 and code.isdigit():
+            # Enable 2FA for the user
+            preferences = {
+                "security": {
+                    "two_factor_enabled": True,
+                    "two_factor_verified": True
+                }
+            }
+            
+            success, message = current_user.update_profile(
+                mongo.db,
+                preferences=preferences
+            )
+            
+            if success:
+                flash("Two-factor authentication has been enabled for your account", "success")
+            else:
+                flash(message, "error")
+        else:
+            flash("Invalid verification code. Please try again.", "error")
+            
+        return redirect(url_for("account_settings"))
+        
+    except Exception as e:
+        print(f"Error verifying 2FA: {e}")
+        flash("An error occurred while verifying two-factor authentication", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/account/download-data")
+@login_required
+def download_user_data():
+    try:
+        # Get user data
+        user_data = {
+            "profile": {
+                "username": current_user.username,
+                "email": current_user.email,
+                "name": current_user.name,
+                "created_at": current_user.created_at.isoformat() if hasattr(current_user.created_at, 'isoformat') else str(current_user.created_at),
+                "last_login": current_user.last_login.isoformat() if hasattr(current_user.last_login, 'isoformat') else str(current_user.last_login),
+                "provider": current_user.provider,
+                "preferences": current_user.preferences
+            }
+        }
+        
+        # Get search history
+        history = SearchHistory.get_user_history(mongo.db, current_user.get_id(), limit=1000)
+        for item in history:
+            item["_id"] = str(item["_id"])
+            item["user_id"] = str(item["user_id"])
+            if isinstance(item.get("timestamp"), datetime):
+                item["timestamp"] = item["timestamp"].isoformat()
+        user_data["search_history"] = history
+        
+        # Get favorites
+        favorites = Favorite.get_favorites(mongo.db, current_user.get_id())
+        for item in favorites:
+            item["_id"] = str(item["_id"])
+            item["user_id"] = str(item["user_id"])
+            if isinstance(item.get("timestamp"), datetime):
+                item["timestamp"] = item["timestamp"].isoformat()
+        user_data["favorites"] = favorites
+        
+        # Create response with JSON data
+        response = jsonify(user_data)
+        response.headers["Content-Disposition"] = f"attachment; filename=sentino_data_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.json"
+        return response
+        
+    except Exception as e:
+        print(f"Error downloading user data: {e}")
+        flash("An error occurred while preparing your data for download", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/account/logout-all", methods=["POST"])
+@login_required
+def logout_all_devices():
+    try:
+        # In a real implementation, you would invalidate all sessions for this user
+        # For this demo, we'll just log out the current session and show a success message
+        
+        # Update last_login to invalidate other sessions
+        mongo.db.users.update_one(
+            {"_id": ObjectId(current_user.get_id())},
+            {"$set": {"session_id": secrets.token_hex(16)}}
+        )
+        
+        # Log out the current session
+        logout_user()
+        session.clear()
+        
+        flash("You have been logged out from all devices", "success")
+        return redirect(url_for("login"))
+        
+    except Exception as e:
+        print(f"Error logging out all devices: {e}")
+        flash("An error occurred while logging out all devices", "error")
+        return redirect(url_for("account_settings"))
+
+@app.route("/api/academic/visualizations", methods=["POST"])
+def get_academic_visualizations():
+    """API endpoint to generate visualizations for academic papers"""
+    try:
+        data = request.json
+        papers = data.get("papers", [])
+        viz_type = data.get("type", "network")  # network, timeline, or authors
+        
+        if not papers:
+            return jsonify({"error": "No papers provided"}), 400
+            
+        # Ensure papers have necessary fields
+        for paper in papers:
+            if 'title' not in paper:
+                return jsonify({"error": "Paper missing title field"}), 400
+
+        if viz_type == "network":
+            figure = create_network_visualization(papers)
+            return jsonify({"visualization": "network", "data": figure.get('data', []), "layout": figure.get('layout', {})})
+        elif viz_type == "timeline":
+            figure = create_timeline_visualization(papers)
+            return jsonify({"visualization": "timeline", "data": figure.get('data', []), "layout": figure.get('layout', {})})
+        elif viz_type == "authors":
+            figure = create_author_visualization(papers)
+            return jsonify({"visualization": "authors", "data": figure.get('data', []), "layout": figure.get('layout', {})})
+        else:
+            return jsonify({"error": "Invalid visualization type"}), 400
+            
+    except Exception as e:
+        print(f"Visualization error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+def create_network_visualization(papers):
+    """Generate a citation network visualization using networkx and plotly"""
+    try:
+        import networkx as nx
+        import plotly.graph_objects as go
+        import random
+        
+        # Create a graph
+        G = nx.DiGraph()
+        
+        # Generate IDs for papers if not present
+        for i, paper in enumerate(papers):
+            if 'arxiv_id' not in paper:
+                paper['arxiv_id'] = f"paper-{i}"
+        
+        # Add nodes (papers)
+        for paper in papers:
+            # Use a shorter version of the title for display
+            short_title = paper['title'][:40] + "..." if len(paper['title']) > 40 else paper['title']
+            G.add_node(paper['arxiv_id'], title=short_title, year=paper.get('published_year'))
+        
+        # Simulate citation relationships for visualization
+        # In a real system, this would use actual citation data
+        paper_ids = [p['arxiv_id'] for p in papers]
+        for i, paper in enumerate(papers):
+            # Each paper has a chance to cite 1-3 other papers
+            num_citations = random.randint(1, min(3, len(papers)-1))
+            for _ in range(num_citations):
+                cited_id = random.choice(paper_ids)
+                if cited_id != paper['arxiv_id']:  # Don't self-cite
+                    G.add_edge(paper['arxiv_id'], cited_id)
+        
+        # Use a spring layout for the graph
+        pos = nx.spring_layout(G)
+        
+        # Create edges trace
+        edge_x = []
+        edge_y = []
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+        
+        edge_trace = {
+            'x': edge_x, 
+            'y': edge_y,
+            'line': {'width': 1, 'color': '#888'},
+            'hoverinfo': 'none',
+            'mode': 'lines',
+            'type': 'scatter'
+        }
+        
+        # Create nodes trace
+        node_x = []
+        node_y = []
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+        
+        # Customize node information for hover text
+        node_text = []
+        for node in G.nodes():
+            node_info = G.nodes[node]
+            citations = len([edge for edge in G.edges() if edge[1] == node])
+            references = len([edge for edge in G.edges() if edge[0] == node])
+            node_text.append(f"{node_info['title']}<br>Year: {node_info.get('year', 'Unknown')}<br>Citations: {citations}<br>References: {references}")
+        
+        # Get degree of each node for coloring
+        node_adjacencies = []
+        for node, adjacencies in enumerate(G.adjacency()):
+            node_adjacencies.append(len(adjacencies[1]))
+            
+        node_trace = {
+            'x': node_x, 
+            'y': node_y,
+            'mode': 'markers',
+            'hoverinfo': 'text',
+            'text': node_text,
+            'marker': {
+                'showscale': True,
+                'colorscale': 'YlGnBu',
+                'size': 10,
+                'color': node_adjacencies,
+                'colorbar': {
+                    'thickness': 15,
+                    'title': 'Node Connections',
+                    'xanchor': 'left',
+                    'titleside': 'right'
+                },
+                'line_width': 2
+            },
+            'type': 'scatter'
+        }
+        
+        # Create the figure
+        figure = {
+            'data': [edge_trace, node_trace],
+            'layout': {
+                'title': 'Paper Citation Network',
+                'showlegend': False,
+                'hovermode': 'closest',
+                'margin': {'b': 20, 'l': 5, 'r': 5, 't': 40},
+                'xaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False},
+                'yaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False}
+            }
+        }
+        
+        return figure
+        
+    except Exception as e:
+        print(f"Network visualization error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Network visualization error: {str(e)}"}
+
+def create_timeline_visualization(papers):
+    """Generate a timeline visualization of papers using plotly"""
+    try:
+        import plotly.graph_objects as go
+        
+        # Prepare data for timeline
+        timeline_data = []
+        for paper in papers:
+            year = paper.get('published_year')
+            if not year and paper.get('published'):
+                # Try to extract year from date string
+                match = re.search(r'(\d{4})', paper['published'])
+                if match:
+                    year = int(match.group(1))
+            
+            if year:
+                timeline_data.append({
+                    'title': paper['title'],
+                    'year': year,
+                    'authors': paper['authors'],
+                    'id': paper.get('arxiv_id', 'unknown')
+                })
+        
+        # Sort by year
+        timeline_data = sorted(timeline_data, key=lambda x: x['year'])
+        
+        # Skip if no timeline data
+        if not timeline_data:
+            return {"error": "No papers with valid publication years"}
+        
+        # Add papers to timeline
+        years = [paper['year'] for paper in timeline_data]
+        # Create abbreviated titles for display
+        titles = [paper['title'][:20] + '...' if len(paper['title']) > 20 else paper['title'] for paper in timeline_data]
+        hover_texts = [f"Title: {paper['title']}<br>Year: {paper['year']}<br>Authors: {paper['authors']}" 
+                      for paper in timeline_data]
+        
+        # Create scatter plot for papers
+        scatter = {
+            'x': years,
+            'y': [1] * len(years),  # All points on same level
+            'mode': 'markers+text',
+            'marker': {'size': 15, 'color': 'royalblue'},
+            'text': titles,
+            'textposition': "top center",
+            'hoverinfo': 'text',
+            'hovertext': hover_texts,
+            'type': 'scatter'
+        }
+        
+        # Create the layout
+        layout = {
+            'title': "Research Timeline",
+            'xaxis': {
+                'title': "Year",
+                'showgrid': True,
+                'dtick': 1  # Show each year
+            },
+            'yaxis': {
+                'showticklabels': False,
+                'showgrid': False,
+                'zeroline': False
+            },
+            'showlegend': False,
+            'hovermode': 'closest'
+        }
+        
+        # Return the figure data
+        return {
+            'data': [scatter],
+            'layout': layout
+        }
+        
+    except Exception as e:
+        print(f"Timeline visualization error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Timeline visualization error: {str(e)}"}
+
+def create_author_visualization(papers):
+    """Generate a network visualization of author collaborations using networkx and plotly"""
+    try:
+        import networkx as nx
+        import plotly.graph_objects as go
+        
+        # Create graph
+        G = nx.Graph()
+        
+        # Extract all unique authors
+        all_authors = {}
+        
+        # Add nodes (authors)
+        for paper in papers:
+            # Process author string or list
+            authors = []
+            if 'authors_list' in paper and paper['authors_list']:
+                authors = paper['authors_list']
+            elif 'authors' in paper:
+                # Split comma-separated authors
+                author_names = paper['authors'].split(',')
+                authors = [{'name': name.strip()} for name in author_names]
+            
+            # Skip if no authors
+            if not authors:
+                continue
+                
+            # Add each author as a node
+            for author in authors:
+                author_name = author.get('name', 'Unknown')
+                if author_name not in all_authors:
+                    all_authors[author_name] = []
+                all_authors[author_name].append(paper['title'])
+                G.add_node(author_name, papers=1)
+            
+            # Add edges between co-authors
+            for i, author1 in enumerate(authors):
+                author1_name = author1.get('name', 'Unknown')
+                for author2 in authors[i+1:]:
+                    author2_name = author2.get('name', 'Unknown')
+                    
+                    # Add edge or increment weight if it exists
+                    if G.has_edge(author1_name, author2_name):
+                        G[author1_name][author2_name]['weight'] += 1
+                    else:
+                        G.add_edge(author1_name, author2_name, weight=1)
+        
+        # Skip if no authors
+        if not G.nodes():
+            return {"error": "No authors found in papers"}
+        
+        # Use a spring layout for the graph
+        pos = nx.spring_layout(G)
+        
+        # Create edges trace
+        edge_x = []
+        edge_y = []
+        edge_text = []
+        
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            edge_text.append(f"Co-authored {G[edge[0]][edge[1]]['weight']} papers")
+        
+        edge_trace = {
+            'x': edge_x, 
+            'y': edge_y,
+            'line': {'width': 1, 'color': '#888'},
+            'hoverinfo': 'text',
+            'text': edge_text,
+            'mode': 'lines',
+            'type': 'scatter'
+        }
+        
+        # Create nodes trace
+        node_x = []
+        node_y = []
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+        
+        # Customize node information for hover text
+        node_text = []
+        for node in G.nodes():
+            papers = all_authors.get(node, [])
+            paper_list = "<br>- ".join(papers[:3])
+            if len(papers) > 3:
+                paper_list += f"<br>...and {len(papers) - 3} more"
+            node_text.append(f"Author: {node}<br>Papers: {len(papers)}<br>- {paper_list}")
+        
+        # Get number of papers for each author for node size/color
+        node_papers = []
+        for node in G.nodes():
+            node_papers.append(len(all_authors.get(node, [])))
+            
+        node_trace = {
+            'x': node_x, 
+            'y': node_y,
+            'mode': 'markers',
+            'hoverinfo': 'text',
+            'text': node_text,
+            'marker': {
+                'showscale': True,
+                'colorscale': 'YlGnBu',
+                'size': 15,
+                'color': node_papers,
+                'colorbar': {
+                    'thickness': 15,
+                    'title': 'Number of Papers',
+                    'xanchor': 'left',
+                    'titleside': 'right'
+                },
+                'line_width': 2
+            },
+            'type': 'scatter'
+        }
+        
+        # Create the figure
+        figure = {
+            'data': [edge_trace, node_trace],
+            'layout': {
+                'title': 'Author Collaboration Network',
+                'showlegend': False,
+                'hovermode': 'closest',
+                'margin': {'b': 20, 'l': 5, 'r': 5, 't': 40},
+                'xaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False},
+                'yaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False}
+            }
+        }
+        
+        # Return the figure
+        return figure
+        
+    except Exception as e:
+        print(f"Author visualization error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Author visualization error: {str(e)}"}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
