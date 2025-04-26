@@ -14,8 +14,20 @@
     <h1 class="title">Sentino AI Query</h1>
     
     <form id="queryForm" aria-label="AI Query Form">
-      <input type="text" id="queryInput" placeholder="Enter your question..." 
-             required aria-label="Query Input">
+      <div class="input-group">
+        <input type="text" id="queryInput" placeholder="Enter your question..." 
+               required aria-label="Query Input">
+        <div class="checkbox-group">
+          <div class="checkbox-wrapper">
+            <input type="checkbox" id="deepAnalysisCheckbox" aria-label="Enable Deep Analysis">
+            <label for="deepAnalysisCheckbox">Deep Analysis</label>
+          </div>
+          <div class="checkbox-wrapper">
+            <input type="checkbox" id="deepResearchCheckbox" aria-label="Enable Deep Research">
+            <label for="deepResearchCheckbox">Deep Research</label>
+          </div>
+        </div>
+      </div>
       <button type="submit" aria-label="Submit Query">Search</button>
     </form>
 

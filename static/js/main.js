@@ -3,8 +3,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const queryInput = document.getElementById('queryInput');
     const responseContainer = document.getElementById('responseContainer');
     const themeSwitcher = document.getElementById('themeSwitcher');
+    const deepAnalysisCheckbox = document.getElementById('deepAnalysisCheckbox');
+    const deepResearchCheckbox = document.getElementById('deepResearchCheckbox');
+    const clearResults = document.getElementById('clearResults');
 
-    if (!queryForm || !queryInput || !responseContainer || !themeSwitcher) {
+    if (!queryForm || !queryInput || !responseContainer || !themeSwitcher || !deepAnalysisCheckbox || !deepResearchCheckbox) {
         console.error("Some elements are missing in the DOM. Ensure IDs match the HTML.");
         return;
     }
@@ -33,6 +36,14 @@ document.addEventListener("DOMContentLoaded", function () {
         localStorage.setItem('theme', newTheme);
     });
 
+    // Clear results button
+    if (clearResults) {
+        clearResults.addEventListener('click', () => {
+            responseContainer.innerHTML = '';
+            responseContainer.style.opacity = 0;
+        });
+    }
+
     // Form submission
     queryForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -50,17 +61,38 @@ document.addEventListener("DOMContentLoaded", function () {
         responseContainer.style.opacity = 1;
 
         try {
-            const response = await fetch('/api/query', {
+            // Determine which endpoint to use based on checkboxes
+            let endpoint = '/api/query';
+            let requestBody = { query };
+            
+            // Deep Research mode (arXiv papers)
+            if (deepResearchCheckbox.checked) {
+                endpoint = '/api/deep-research';
+                // Show special message for arXiv search
+                responseContainer.innerHTML = `
+                    <div class="spinner"></div>
+                    <p class="processing typewriter">Searching academic papers on arXiv...</p>
+                    <p class="processing">This may take a bit longer than regular searches</p>
+                `;
+            } else {
+                // Regular search with optional deep analysis
+                requestBody.enable_deep_analysis = deepAnalysisCheckbox.checked;
+            }
+
+            console.log(`Sending request to ${endpoint} with query: ${query}`);
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
-                throw new Error(`API error: ${response.status} ${response.statusText}`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
+            console.log("Received response:", data);
 
             // Construct response HTML with Markdown parsing
             let html = `<h2 class="fade-in">Your Query:</h2>
@@ -69,8 +101,26 @@ document.addEventListener("DOMContentLoaded", function () {
             html += `<h2 class="fade-in">AI Answer:</h2>
                      <div class="ai-response fade-in typewriter">${marked.parse(data.answer || "No answer available.")}</div>`;
 
-            // If search results exist, display them
-            if (data.search_results && data.search_results.length > 0) {
+            // If this is a deep research response with papers
+            if (data.feature === "deep_research" && data.papers && data.papers.length > 0) {
+                html += `<h2 class="fade-in">AI Analysis of Academic Papers</h2>`;
+                html += `<div class="ai-response academic-analysis fade-in">${marked.parse(data.answer || "No analysis available.")}</div>`;
+                
+                html += `<h2 class="fade-in">Academic Papers Used in Analysis:</h2><div class="paper-list">`;
+                data.papers.forEach(paper => {
+                    html += `
+                    <div class="paper-item fade-in">
+                        <div class="paper-title">${escapeHtml(paper.title)}</div>
+                        <div class="paper-authors">Authors: ${escapeHtml(paper.authors)}</div>
+                        <div>Published: ${escapeHtml(paper.published)}</div>
+                        <div class="paper-summary">${escapeHtml(paper.summary.substring(0, 200))}${paper.summary.length > 200 ? '...' : ''}</div>
+                        <a class="paper-link" href="${paper.pdf_url}" target="_blank">View PDF</a>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+            // If regular search results exist, display them
+            else if (data.search_results && data.search_results.length > 0) {
                 html += `<h2 class="fade-in">Search Results:</h2><ul>`;
                 data.search_results.forEach(result => {
                     html += `<li class="fade-in">
@@ -88,7 +138,15 @@ document.addEventListener("DOMContentLoaded", function () {
             responseContainer.classList.add("fade-in");
 
         } catch (err) {
-            responseContainer.innerHTML = `<p style="color:red;">Error: ${err.message}</p>`;
+            console.error("Error processing request:", err);
+            responseContainer.innerHTML = `
+                <div class="error-container">
+                    <h2>Error</h2>
+                    <p>${escapeHtml(err.message)}</p>
+                    ${deepResearchCheckbox.checked ? 
+                        '<p>The arXiv search feature may be experiencing issues. Please try again with a more specific query or use the regular search option.</p>' : 
+                        ''}
+                </div>`;
         } finally {
             submitButton.disabled = false;
             queryInput.value = '';

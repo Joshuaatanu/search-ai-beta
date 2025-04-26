@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 # Import the Gemini client from Google's generative AI library
 import google.generativeai as genai
+import arxiv
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -202,6 +204,169 @@ def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
         print("Gemini API error:", e)
         return None
 
+def query_arxiv(query, max_results=3):
+    """
+    Searches arXiv for academic papers based on the query.
+    Returns a list of paper details including title, authors, summary, and PDF URL.
+    """
+    try:
+        print(f"Querying arXiv with: {query}")
+        # Clean the query for better arXiv search results
+        cleaned_query = re.sub(r'[^\w\s]', ' ', query).strip()
+        if not cleaned_query:
+            cleaned_query = query  # Use original if cleaning removed everything
+        
+        print(f"Cleaned query: {cleaned_query}")
+        
+        # Create a client with appropriate parameters
+        client = arxiv.Client(
+            page_size=max_results,
+            delay_seconds=1,
+            num_retries=2
+        )
+        
+        # Create the search query
+        search = arxiv.Search(
+            query=cleaned_query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance
+        )
+        
+        # Execute the search and collect results
+        print("Executing arXiv search...")
+        papers = []
+        for result in client.results(search):
+            try:
+                # Extract publication date safely
+                try:
+                    published_date = result.published.strftime("%Y-%m-%d") if result.published else "Unknown"
+                except:
+                    published_date = "Unknown"
+                
+                # Extract authors safely
+                try:
+                    authors = ", ".join(author.name for author in result.authors) if result.authors else "Unknown"
+                except:
+                    authors = "Unknown"
+                
+                paper = {
+                    "title": result.title or "Unknown Title",
+                    "authors": authors,
+                    "summary": result.summary or "No summary available",
+                    "pdf_url": result.pdf_url or "#",
+                    "published": published_date,
+                    "arxiv_id": result.entry_id.split("/")[-1] if result.entry_id else "unknown"
+                }
+                papers.append(paper)
+                print(f"Found paper: {paper['title']}")
+            except Exception as e:
+                print(f"Error processing paper result: {str(e)}")
+                continue
+        
+        print(f"Found {len(papers)} papers")
+        return papers
+    except Exception as e:
+        print(f"arXiv search error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def generate_arxiv_context(paper_results):
+    """
+    Generates a combined text string from arXiv papers to provide context to Gemini.
+    """
+    combined_text = ""
+    for i, paper in enumerate(paper_results, 1):
+        combined_text += f"Paper {i}:\n"
+        combined_text += f"Title: {paper['title']}\n"
+        combined_text += f"Authors: {paper['authors']}\n"
+        combined_text += f"Published: {paper['published']}\n"
+        combined_text += f"Summary: {paper['summary']}\n"
+        combined_text += f"URL: {paper['pdf_url']}\n\n"
+    return combined_text
+
+@app.route("/api/deep-research", methods=["POST"])
+def handle_deep_research():
+    try:
+        data = request.json
+        query = data.get("query", "")
+        
+        if not query:
+            return jsonify({"error": "No query provided"}), 400
+        
+        # Get papers from arXiv
+        try:
+            paper_results = query_arxiv(query)
+            print(f"Found {len(paper_results)} papers for query: {query}")
+        except Exception as e:
+            print(f"Error querying arXiv: {str(e)}")
+            return jsonify({"error": f"Error querying arXiv: {str(e)}"}), 500
+        
+        if not paper_results:
+            return jsonify({"error": "No relevant papers found"}), 404
+        
+        # Generate context from papers
+        arxiv_context = generate_arxiv_context(paper_results)
+        
+        # Create an enhanced prompt for Gemini with more detailed instructions
+        prompt = (
+            f"You are an advanced academic research assistant with expertise in analyzing scientific papers. "
+            f"I need you to provide a comprehensive analysis of the following arXiv papers to answer this query: '{query}'\n\n"
+            f"Research Question: {query}\n\n"
+            f"Here are the relevant papers and their summaries:\n\n{arxiv_context}\n\n"
+            f"Please provide a detailed analysis that includes:\n"
+            f"1. A comprehensive answer to the research question based on the papers\n"
+            f"2. Key findings and methodologies from each relevant paper\n"
+            f"3. Any consensus or contradictions among the different papers\n"
+            f"4. Limitations of current research on this topic\n"
+            f"5. Potential directions for future research\n\n"
+            f"When citing papers, use the format 'According to [Authors] in [Title]...'\n"
+            f"Your analysis should be well-structured with headings and sections, thorough, and scientifically accurate."
+        )
+        
+        print("Sending enhanced prompt to Gemini for deep analysis")
+        
+        # Generate answer using Gemini with deep analysis mode
+        try:
+            # Use more tokens and higher temperature for academic analysis
+            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+            model = genai.GenerativeModel(
+                "gemini-2.0-flash",
+                generation_config={
+                    "max_output_tokens": 4096,  # Increased token limit for detailed analysis
+                    "temperature": 0.7,  # Slightly higher temperature for academic analysis
+                    "top_p": 0.95,
+                    "top_k": 40
+                }
+            )
+            
+            response = model.generate_content(prompt)
+            answer = response.text
+            
+            if not answer or answer.strip() == "":
+                raise Exception("Gemini returned empty response")
+                
+            print("Successfully received analysis from Gemini")
+            
+        except Exception as e:
+            print(f"Error generating answer from Gemini: {str(e)}")
+            return jsonify({"error": f"Error generating answer from Gemini: {str(e)}"}), 500
+        
+        final_response = {
+            "query": query,
+            "papers": paper_results,
+            "answer": answer,
+            "feature": "deep_research",
+            "analysis_type": "academic"
+        }
+        
+        return jsonify(final_response)
+    
+    except Exception as e:
+        print(f"Unexpected error in deep research: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port =int(os.getenv("PORT",10000))

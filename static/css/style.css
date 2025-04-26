@@ -171,3 +171,136 @@ button:active {
     line-height: 1.6;
     white-space: pre-wrap;
 }
+
+.input-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+.input-group input[type="text"] {
+    flex: 1;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    width: 1.2rem;
+    height: 1.2rem;
+    cursor: pointer;
+}
+
+.checkbox-wrapper label {
+    font-size: 0.9rem;
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+/* Paper display styling */
+.paper-list {
+    margin-top: 15px;
+}
+
+.paper-item {
+    background: rgba(var(--text-color-rgb), 0.1);
+    padding: 12px;
+    margin-bottom: 10px;
+    border-left: 3px solid var(--text-color);
+    border-radius: 3px;
+}
+
+.paper-title {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.paper-authors {
+    font-style: italic;
+    margin-bottom: 5px;
+    font-size: 0.9em;
+}
+
+.paper-summary {
+    margin: 8px 0;
+    line-height: 1.4;
+}
+
+.paper-link {
+    display: block;
+    margin-top: 5px;
+    color: var(--text-color);
+}
+
+/* Error styling */
+.error-container {
+    background: rgba(255, 50, 50, 0.1);
+    border-left: 3px solid #ff3232;
+    padding: 15px;
+    border-radius: 3px;
+    margin-top: 20px;
+}
+
+.error-container h2 {
+    color: #ff5252;
+    margin-top: 0;
+}
+
+.error-container p {
+    margin: 10px 0;
+}
+
+/* Academic analysis styling */
+.academic-analysis {
+    background: rgba(var(--text-color-rgb), 0.15);
+    padding: 18px;
+    border-left: 4px solid var(--text-color);
+    border-radius: 4px;
+    margin: 20px 0;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.academic-analysis h1, 
+.academic-analysis h2, 
+.academic-analysis h3 {
+    color: var(--text-color);
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.academic-analysis h1 {
+    font-size: 1.5em;
+    border-bottom: 1px solid rgba(var(--text-color-rgb), 0.3);
+    padding-bottom: 5px;
+}
+
+.academic-analysis h2 {
+    font-size: 1.3em;
+}
+
+.academic-analysis h3 {
+    font-size: 1.1em;
+}
+
+.academic-analysis ul, 
+.academic-analysis ol {
+    margin-left: 20px;
+    margin-bottom: 15px;
+}
+
+.academic-analysis p {
+    margin-bottom: 15px;
+}
