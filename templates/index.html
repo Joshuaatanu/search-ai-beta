@@ -3,43 +3,124 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sentino AI Query</title>
+  <title>Sentino AI</title>
   <link rel="stylesheet" href="/static/css/style.css">
   <script defer src="/static/js/main.js"></script>
-  <meta name="description" content="AI Query Interface for Sentino">
+  <meta name="description" content="AI Search Interface for Sentino">
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
 </head>
 <body>
-  <div class="container">
-    <h1 class="title">Sentino AI Query</h1>
-    
-    <form id="queryForm" aria-label="AI Query Form">
-      <div class="input-group">
-        <input type="text" id="queryInput" placeholder="Enter your question..." 
-               required aria-label="Query Input">
-        <div class="checkbox-group">
-          <div class="checkbox-wrapper">
-            <input type="checkbox" id="deepAnalysisCheckbox" aria-label="Enable Deep Analysis">
-            <label for="deepAnalysisCheckbox">Deep Analysis</label>
+  <header>
+    <div class="logo">Sentino AI</div>
+    <nav>
+      <ul>
+        <li><a href="#" class="nav-link active" data-view="search">Quick Search</a></li>
+        <li><a href="#" class="nav-link" data-view="deep-analysis">Deep Analysis</a></li>
+        <li><a href="#" class="nav-link" data-view="academic">Academic Research</a></li>
+      </ul>
+    </nav>
+    <button id="themeSwitcher" aria-label="Switch Theme">
+      <svg viewBox="0 0 24 24" width="24" height="24">
+        <path d="M20 15.31L23.31 12 20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69z"></path>
+      </svg>
+    </button>
+  </header>
+
+  <main>
+    <!-- Home/Welcome View -->
+    <div class="view-container" id="welcome-view">
+      <div class="welcome-content">
+        <h1>Welcome to Sentino AI</h1>
+        <p>Choose a search mode to get started:</p>
+        
+        <div class="feature-cards">
+          <div class="feature-card" data-target="search">
+            <h2>Quick Search</h2>
+            <p>Get fast answers to general questions using web search integration.</p>
+            <button class="feature-button">Select</button>
           </div>
-          <div class="checkbox-wrapper">
-            <input type="checkbox" id="deepResearchCheckbox" aria-label="Enable Deep Research">
-            <label for="deepResearchCheckbox">Deep Research</label>
+          
+          <div class="feature-card" data-target="deep-analysis">
+            <h2>Deep Analysis</h2>
+            <p>Comprehensive analysis with detailed insights and multiple perspectives.</p>
+            <button class="feature-button">Select</button>
+          </div>
+          
+          <div class="feature-card" data-target="academic">
+            <h2>Academic Research</h2>
+            <p>Research based on academic papers from arXiv with scholarly analysis.</p>
+            <button class="feature-button">Select</button>
           </div>
         </div>
       </div>
-      <button type="submit" aria-label="Submit Query">Search</button>
-    </form>
-
-    <div class="button-group">
-      <button id="themeSwitcher">Change Theme</button>
-      <button id="clearResults">Clear Results</button>
     </div>
 
-    <!-- Response container: results and spinner will appear here -->
-    <div id="responseContainer"></div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Quick Search View -->
+    <div class="view-container" id="search-view" style="display: none;">
+      <h1>Quick Search</h1>
+      <p class="view-description">Fast answers to your questions using web search integration.</p>
+      
+      <form id="searchForm" class="query-form">
+        <div class="input-container">
+          <input type="text" id="searchInput" placeholder="Enter your question..." required>
+          <button type="submit">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
+            </svg>
+          </button>
+        </div>
+      </form>
 
+      <div id="searchResults" class="results-container"></div>
+    </div>
+
+    <!-- Deep Analysis View -->
+    <div class="view-container" id="deep-analysis-view" style="display: none;">
+      <h1>Deep Analysis</h1>
+      <p class="view-description">Get comprehensive analysis with detailed insights and multiple perspectives.</p>
+      
+      <form id="deepAnalysisForm" class="query-form">
+        <div class="input-container">
+          <input type="text" id="deepAnalysisInput" placeholder="Enter a complex question..." required>
+          <button type="submit">Analyze</button>
+        </div>
+      </form>
+
+      <div id="deepAnalysisResults" class="results-container"></div>
+    </div>
+
+    <!-- Academic Research View -->
+    <div class="view-container" id="academic-view" style="display: none;">
+      <h1>Academic Research</h1>
+      <p class="view-description">Get answers based on academic papers from arXiv with scholarly analysis.</p>
+      
+      <form id="academicForm" class="query-form">
+        <div class="input-container">
+          <input type="text" id="academicInput" placeholder="Enter a research question..." required>
+          <button type="submit">Research</button>
+        </div>
+        <div class="paper-options">
+          <label>
+            Max papers: 
+            <select id="maxPapers">
+              <option value="3">3</option>
+              <option value="5">5</option>
+              <option value="7">7</option>
+            </select>
+          </label>
+        </div>
+      </form>
+
+      <div id="academicResults" class="results-container"></div>
+    </div>
+  </main>
+
+  <footer>
+    <button id="clearResults">Clear Results</button>
+    <span class="copyright">© 2025 Sentino AI</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </body>
 </html>

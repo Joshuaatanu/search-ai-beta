@@ -290,13 +290,23 @@ def handle_deep_research():
     try:
         data = request.json
         query = data.get("query", "")
+        max_papers = data.get("max_papers", 3)  # Default to 3 papers if not specified
+        
+        # Ensure max_papers is an integer and within reasonable bounds
+        try:
+            max_papers = int(max_papers)
+            max_papers = min(max(max_papers, 1), 10)  # Limit between 1 and 10
+        except (ValueError, TypeError):
+            max_papers = 3
+            
+        print(f"Deep research request: query='{query}', max_papers={max_papers}")
         
         if not query:
             return jsonify({"error": "No query provided"}), 400
         
         # Get papers from arXiv
         try:
-            paper_results = query_arxiv(query)
+            paper_results = query_arxiv(query, max_papers)
             print(f"Found {len(paper_results)} papers for query: {query}")
         except Exception as e:
             print(f"Error querying arXiv: {str(e)}")
@@ -357,7 +367,8 @@ def handle_deep_research():
             "papers": paper_results,
             "answer": answer,
             "feature": "deep_research",
-            "analysis_type": "academic"
+            "analysis_type": "academic",
+            "paper_count": len(paper_results)
         }
         
         return jsonify(final_response)
