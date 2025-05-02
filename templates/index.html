@@ -10,13 +10,19 @@
 </head>
 <body>
   <header>
+    <button class="mobile-menu-toggle" aria-label="Toggle navigation menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
     <div class="logo">Sentino AI</div>
     <nav>
       <ul>
         <li><a href="#" class="nav-link" data-view="welcome">Home</a></li>
-        <li><a href="#" class="nav-link" data-view="search">Quick Search</a></li>
-        <li><a href="#" class="nav-link" data-view="deep-analysis">Deep Analysis</a></li>
-        <li><a href="#" class="nav-link" data-view="academic">Academic Research</a></li>
+        <li><a href="/#" class="nav-link" data-view="search">Quick Search</a></li>
+        <li><a href="/#" class="nav-link" data-view="deep-analysis">Deep Analysis</a></li>
+        <li><a href="/#" class="nav-link" data-view="academic">Academic Research</a></li>
+        <li><a href="/chat" class="nav-link">AI Chat</a></li>
       </ul>
     </nav>
     <div class="user-actions">
@@ -71,21 +77,34 @@
 
     <!-- Quick Search View -->
     <div class="view-container" id="search-view" style="display: none;">
-      <h1>Quick Search</h1>
-      <p class="view-description">Fast answers to your questions using web search integration.</p>
-      
-      <form id="searchForm" class="query-form">
-        <div class="input-container">
-          <input type="text" id="searchInput" placeholder="Enter your question..." required>
-          <button type="submit">
-            <svg viewBox="0 0 24 24" width="24" height="24">
-              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-            </svg>
-          </button>
+      <div class="search-container">
+        <h1>Search</h1>
+        <p class="view-description">Ask any question and get comprehensive answers with sources.</p>
+        
+        <form id="searchForm" class="query-form">
+          <div class="input-container">
+            <div class="search-input-wrapper">
+              <input type="text" id="searchInput" placeholder="Enter your question..." required>
+            </div>
+            <button type="submit" class="search-submit">Search</button>
+          </div>
+        </form>
+        
+        <div id="searchResults" class="results-container" style="display: none;">
+          <div class="results-header">
+            <h2>Results</h2>
+            <div class="results-actions">
+              <button id="clearResults" title="Clear results">Clear</button>
+            </div>
+          </div>
+          <div class="results-body"></div>
         </div>
-      </form>
-
-      <div id="searchResults" class="results-container"></div>
+        
+        <div id="loadingIndicator" class="spinner-container" style="display: none;">
+          <div class="spinner"></div>
+          <p>Searching...</p>
+        </div>
+      </div>
     </div>
 
     <!-- Deep Analysis View -->
@@ -146,6 +165,8 @@
   <!-- JavaScript Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.29.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   
   <!-- Main JavaScript -->
   <script src="/static/js/main.js"></script>

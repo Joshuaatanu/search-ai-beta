@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ feature_name }} - Temporarily Disabled</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body data-theme="{{ user_theme }}">
+    <header>
+        <div class="logo">Sentino AI</div>
+        <nav>
+            <ul>
+                <li><a href="/" class="nav-link">Home</a></li>
+                <li><a href="/#" class="nav-link" data-view="search">Quick Search</a></li>
+                <li><a href="/#" class="nav-link" data-view="deep-analysis">Deep Analysis</a></li>
+                <li><a href="/#" class="nav-link" data-view="academic">Academic Research</a></li>
+            </ul>
+        </nav>
+        <div class="user-actions">
+            {% if current_user.is_authenticated %}
+                <a href="/profile" class="user-profile">
+                    {% if current_user.picture %}
+                        <img src="{{ current_user.picture }}" alt="{{ current_user.name }}" class="user-avatar">
+                    {% else %}
+                        <div class="user-avatar-placeholder">{{ current_user.name[:1] }}</div>
+                    {% endif %}
+                    <span>{{ current_user.name }}</span>
+                </a>
+            {% else %}
+                <a href="/login" class="login-button">Login</a>
+            {% endif %}
+            <button id="themeSwitcher" aria-label="Switch Theme">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path d="M20 15.31L23.31 12 20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69z"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="feature-disabled">
+            <div class="disabled-container">
+                <i class="fas fa-tools fa-4x"></i>
+                <h1>{{ feature_name }}</h1>
+                <p>{{ message }}</p>
+                <p class="secondary-text">Please check back later or try one of our other features.</p>
+                <a href="/" class="feature-button">Return to Home</a>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-right">
+            <span class="copyright">© 2025 Sentino AI</span>
+            {% if current_user.is_authenticated %}
+                <a href="/profile" class="footer-link">Profile</a>
+                <a href="/logout" class="footer-link">Logout</a>
+            {% else %}
+                <a href="/login" class="footer-link">Login</a>
+            {% endif %}
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html> 

@@ -161,7 +161,7 @@ class User(UserMixin):
             print(f"Error saving user: {e}")
             return self
             
-    def update_profile(self, db, username=None, name=None, email=None, preferences=None):
+    def update_profile(self, db, username=None, name=None, email=None, preferences=None, picture=None):
         """Update user profile data"""
         try:
             if db is None:
@@ -188,6 +188,11 @@ class User(UserMixin):
             if name:
                 update_data['name'] = name
                 self.name = name
+                
+            # Update picture if provided
+            if picture:
+                update_data['picture'] = picture
+                self.picture = picture
                 
             # Update preferences if provided
             if preferences:
@@ -256,8 +261,18 @@ class SearchHistory:
     """Model for tracking user search history"""
     
     @staticmethod
-    def add_search(db, user_id, query, search_type, results_count=0, papers=None):
-        """Add a search to user's history"""
+    def add_search(db, user_id, query, search_type, results_count=0, papers=None, answer=None, search_results=None):
+        """
+        Add a search to user's history
+        
+        Parameters:
+        - query: The search query string
+        - search_type: 'quick', 'deep', or 'academic'
+        - results_count: Number of search results or papers
+        - papers: List of papers for academic searches
+        - answer: The generated AI analysis/answer
+        - search_results: The original search results
+        """
         try:
             if db is None:
                 print("Warning: Database connection not available in add_search")
@@ -266,10 +281,12 @@ class SearchHistory:
             search_data = {
                 'user_id': ObjectId(user_id),
                 'query': query,
-                'search_type': search_type,  # 'quick', 'deep', 'academic'
+                'search_type': search_type,
                 'timestamp': datetime.utcnow(),
                 'results_count': results_count,
-                'papers': papers or []
+                'papers': papers or [],
+                'answer': answer,  # Store the AI-generated answer
+                'search_results': search_results  # Store the search results
             }
             db.search_history.insert_one(search_data)
         except Exception as e:
@@ -300,6 +317,19 @@ class SearchHistory:
             db.search_history.delete_many({'user_id': ObjectId(user_id)})
         except Exception as e:
             print(f"Error clearing history: {e}")
+            
+    @staticmethod
+    def get_search_by_id(db, search_id):
+        """Get a specific search by ID"""
+        try:
+            if db is None:
+                print("Warning: Database connection not available in get_search_by_id")
+                return None
+                
+            return db.search_history.find_one({'_id': ObjectId(search_id)})
+        except Exception as e:
+            print(f"Error getting search: {e}")
+            return None
 
 class Favorite:
     """Model for user's favorite searches and results"""

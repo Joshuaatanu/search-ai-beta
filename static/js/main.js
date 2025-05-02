@@ -1,5 +1,38 @@
 document.addEventListener("DOMContentLoaded", function () {
-    // DOM elements
+    // Mobile menu functionality
+    const mobileMenuToggle = document.querySelector('.mobile-menu-toggle');
+    const nav = document.querySelector('nav');
+    
+    if (mobileMenuToggle && nav) {
+        mobileMenuToggle.addEventListener('click', () => {
+            mobileMenuToggle.classList.toggle('active');
+            nav.classList.toggle('active');
+            document.body.style.overflow = nav.classList.contains('active') ? 'hidden' : '';
+        });
+
+        // Close mobile menu when clicking a nav link
+        const navLinks = nav.querySelectorAll('.nav-link');
+        navLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                mobileMenuToggle.classList.remove('active');
+                nav.classList.remove('active');
+                document.body.style.overflow = '';
+            });
+        });
+
+        // Close mobile menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (nav.classList.contains('active') &&
+                !nav.contains(e.target) &&
+                !mobileMenuToggle.contains(e.target)) {
+                mobileMenuToggle.classList.remove('active');
+                nav.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        });
+    }
+
+    // Global elements
     const themeSwitcher = document.getElementById('themeSwitcher');
     const clearResults = document.getElementById('clearResults');
     const navLinks = document.querySelectorAll('.nav-link');
@@ -10,6 +43,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchView = document.getElementById('search-view');
     const deepAnalysisView = document.getElementById('deep-analysis-view');
     const academicView = document.getElementById('academic-view');
+    
+    // Check if we're on the main page with views
+    const isMainPage = welcomeView || searchView || deepAnalysisView || academicView;
     
     // Form elements
     const searchForm = document.getElementById('searchForm');
@@ -32,87 +68,140 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Handle theme switching
-    themeSwitcher.addEventListener('click', () => {
-        currentThemeIndex = (currentThemeIndex + 1) % themes.length;
-        const newTheme = themes[currentThemeIndex];
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-    });
+    if (themeSwitcher) {
+        themeSwitcher.addEventListener('click', () => {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            const newTheme = themes[currentThemeIndex];
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+    }
 
     // Clear results button
-    clearResults.addEventListener('click', () => {
-        searchResults.innerHTML = '';
-        deepAnalysisResults.innerHTML = '';
-        academicResults.innerHTML = '';
-    });
+    if (clearResults) {
+        clearResults.addEventListener('click', () => {
+            if (searchResults) searchResults.innerHTML = '';
+            if (deepAnalysisResults) deepAnalysisResults.innerHTML = '';
+            if (academicResults) academicResults.innerHTML = '';
+        });
+    }
+
+    // Initialize views only if we're on the main page
+    if (isMainPage) {
+        // Show last active view from local storage or default to welcome
+        const lastActiveView = localStorage.getItem('lastView') || 'welcome';
+        showView(lastActiveView);
+        
+        // Navigation event listeners
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                const viewId = link.getAttribute('data-view');
+                // Only prevent default and handle internally if it has a data-view attribute
+                if (viewId) {
+                    e.preventDefault();
+                    showView(viewId);
+                }
+                // Links without data-view will navigate normally
+            });
+        });
+        
+        // Feature card event listeners
+        featureCards.forEach(card => {
+            card.addEventListener('click', () => {
+                const viewId = card.getAttribute('data-target');
+                showView(viewId);
+            });
+        });
+        
+        // Form submissions
+        if (searchForm) {
+            searchForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const query = document.getElementById('searchInput').value.trim();
+                if (!query) return;
+                await handleSearch(query, searchResults, '/api/query', false, 'quick');
+            });
+        }
+        
+        if (deepAnalysisForm) {
+            deepAnalysisForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const query = document.getElementById('deepAnalysisInput').value.trim();
+                if (!query) return;
+                await handleSearch(query, deepAnalysisResults, '/api/query', true, 'deep');
+            });
+        }
+        
+        if (academicForm) {
+            academicForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const query = document.getElementById('academicInput').value.trim();
+                if (!query) return;
+                const maxPapers = document.getElementById('maxPapers').value;
+                await handleAcademicSearch(query, maxPapers, academicResults);
+            });
+        }
+        
+        // If URL has query parameters, trigger appropriate search
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryParam = urlParams.get('query');
+        const typeParam = urlParams.get('type');
+        
+        if (queryParam) {
+            setTimeout(() => {
+                if (typeParam === 'deep') {
+                    const deepLink = document.querySelector('.nav-link[data-view="deep-analysis"]');
+                    if (deepLink) deepLink.click();
+                    const deepAnalysisInput = document.getElementById('deepAnalysisInput');
+                    if (deepAnalysisForm && deepAnalysisInput) {
+                        deepAnalysisInput.value = queryParam;
+                        deepAnalysisForm.dispatchEvent(new Event('submit'));
+                    }
+                } else if (typeParam === 'academic') {
+                    const academicLink = document.querySelector('.nav-link[data-view="academic"]');
+                    if (academicLink) academicLink.click();
+                    const academicInput = document.getElementById('academicInput');
+                    if (academicForm && academicInput) {
+                        academicInput.value = queryParam;
+                        academicForm.dispatchEvent(new Event('submit'));
+                    }
+                } else {
+                    const searchLink = document.querySelector('.nav-link[data-view="search"]');
+                    if (searchLink) searchLink.click();
+                    const searchInput = document.getElementById('searchInput');
+                    if (searchForm && searchInput) {
+                        searchInput.value = queryParam;
+                        searchForm.dispatchEvent(new Event('submit'));
+                    }
+                }
+            }, 100);
+        }
+    }
 
     // Navigation handling
     function showView(viewId) {
         // Hide all views
-        welcomeView.style.display = 'none';
-        searchView.style.display = 'none';
-        deepAnalysisView.style.display = 'none';
-        academicView.style.display = 'none';
+        if (welcomeView) welcomeView.style.display = 'none';
+        if (searchView) searchView.style.display = 'none';
+        if (deepAnalysisView) deepAnalysisView.style.display = 'none';
+        if (academicView) academicView.style.display = 'none';
         
         // Deactivate all nav links
         navLinks.forEach(link => link.classList.remove('active'));
         
         // Show selected view and activate its nav link
         if (viewId === 'welcome') {
-            welcomeView.style.display = 'block';
+            if (welcomeView) welcomeView.style.display = 'block';
         } else {
-            document.getElementById(`${viewId}-view`).style.display = 'block';
-            document.querySelector(`.nav-link[data-view="${viewId}"]`).classList.add('active');
+            const viewElement = document.getElementById(`${viewId}-view`);
+            if (viewElement) viewElement.style.display = 'block';
+            
+            const navLink = document.querySelector(`.nav-link[data-view="${viewId}"]`);
+            if (navLink) navLink.classList.add('active');
             
             // Save last active view to localStorage
             localStorage.setItem('lastView', viewId);
         }
-    }
-    
-    // Navigation event listeners
-    navLinks.forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const viewId = link.getAttribute('data-view');
-            showView(viewId);
-        });
-    });
-    
-    // Feature card event listeners
-    featureCards.forEach(card => {
-        card.addEventListener('click', () => {
-            const viewId = card.getAttribute('data-target');
-            showView(viewId);
-        });
-    });
-    
-    // Form submissions
-    if (searchForm) {
-        searchForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const query = document.getElementById('searchInput').value.trim();
-            if (!query) return;
-            await handleSearch(query, searchResults, '/api/query', false, 'quick');
-        });
-    }
-    
-    if (deepAnalysisForm) {
-        deepAnalysisForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const query = document.getElementById('deepAnalysisInput').value.trim();
-            if (!query) return;
-            await handleSearch(query, deepAnalysisResults, '/api/query', true, 'deep');
-        });
-    }
-    
-    if (academicForm) {
-        academicForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const query = document.getElementById('academicInput').value.trim();
-            if (!query) return;
-            const maxPapers = document.getElementById('maxPapers').value;
-            await handleAcademicSearch(query, maxPapers, academicResults);
-        });
     }
     
     // API request handlers
@@ -149,18 +238,20 @@ document.addEventListener("DOMContentLoaded", function () {
         try {
             const response = await fetch('/api/deep-research', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    query,
-                    max_papers: parseInt(maxPapers)
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query: query,
+                    max_papers: maxPapers
                 })
             });
-
+            
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to process research query');
             }
-
+            
             const data = await response.json();
             renderAcademicResults(data, resultsContainer, query);
             
@@ -226,267 +317,471 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     function renderAcademicResults(data, container, originalQuery) {
-        // Debug log to see paper structure
+        container.innerHTML = '';
         console.log("Academic papers data:", data.papers);
         
-        let html = `
-            <div class="results-header">
+        // Create main results container
+        const resultsHTML = `
+            <div class="academic-results">
                 <h2>Academic Research: ${escapeHtml(data.query || "N/A")}</h2>
-                <div class="results-actions">
+                <div class="actions-bar">
                     <button onclick="addFavorite('${escapeHtml(originalQuery)}', 'academic')">Save to Favorites</button>
                 </div>
-            </div>
-            <div class="results-body">
+                
+                <div class="methodology-filter-container">
+                    <h3>Filter by Research Methodology</h3>
+                    <div class="methodology-filter">
+                        <select id="methodologyFilter" onchange="filterByMethodology(this.value)">
+                            <option value="all">All Methodologies</option>
+                            <option value="empirical">Empirical</option>
+                            <option value="theoretical">Theoretical</option>
+                            <option value="review">Review/Survey</option>
+                            <option value="case_study">Case Study</option>
+                            <option value="simulation">Simulation</option>
+                            <option value="design">Design/Implementation</option>
+                            <option value="unknown">Other/Unknown</option>
+                        </select>
+                    </div>
+                    <div id="methodologyStats" class="methodology-stats">
+                        ${renderMethodologyStats(data.methodology_comparison)}
+                    </div>
+                </div>
+                
                 <div class="academic-analysis">
                     ${marked.parse(data.answer || "No analysis available.")}
                 </div>
-        `;
-        
-        // If papers exist, display them
-        if (data.papers && data.papers.length > 0) {
-            html += `
-                <div class="papers-container">
+                
+                <div id="papersContainer">
                     <h3>Academic Papers</h3>
-                    <div class="paper-list">
-            `;
-            
-            data.papers.forEach(paper => {
-                html += `
-                <div class="paper-item">
-                    <div class="paper-title">${escapeHtml(paper.title)}</div>
-                    <div class="paper-authors">Authors: ${escapeHtml(paper.authors)}</div>
-                    <div>Published: ${escapeHtml(paper.published)}</div>
-                    <div class="paper-summary">${escapeHtml(paper.summary.substring(0, 200))}${paper.summary.length > 200 ? '...' : ''}</div>
-                    <a class="paper-link" href="${paper.pdf_url}" target="_blank">View PDF</a>
-                </div>`;
-            });
-            
-            html += `</div></div>`;
-            
-            // Add Visualization Section
-            html += `
-                <div class="viz-container">
-                    <div class="viz-header">
-                        <div class="viz-title">Research Visualizations</div>
-                        <div class="viz-actions">
-                            <button class="viz-button" id="exportViz">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                </svg>
-                                Export
-                            </button>
-                        </div>
+                    <div class="papers-list">
+                        ${data.papers.map(paper => renderPaperCard(paper)).join('')}
                     </div>
+                </div>
+                
+                <div class="visualizations-container">
+                    <div class="viz-title">Research Visualizations</div>
                     <div class="viz-tabs">
                         <div class="viz-tab active" data-viz="network">Citation Network</div>
                         <div class="viz-tab" data-viz="timeline">Research Timeline</div>
-                        <div class="viz-tab" data-viz="authors">Author Collaboration</div>
+                        <div class="viz-tab" data-viz="authors">Author Collaborations</div>
+                        <div class="viz-tab" data-viz="methodology">Methodology Breakdown</div>
                     </div>
-                    <div class="viz-content">
-                        <div class="viz-loading">
-                            <div class="spinner"></div>
-                            <span>Loading visualization...</span>
-                        </div>
+                    <div class="viz-description" id="vizDescription">
+                        This network visualization shows citation relationships between papers. Each node represents a paper, with edges showing citations.
                     </div>
-                    <div class="viz-description">
-                        <p>This visualization helps you understand relationships between papers based on their citations. Hover over elements to see detailed information.</p>
+                    <div class="viz-container" id="vizContainer"></div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = resultsHTML;
+        
+        // Store papers data for filtering
+        window.currentPapers = data.papers;
+        window.methodologyComparison = data.methodology_comparison;
+        
+        // Initialize visualization tabs
+        initializeVisualizationTabs(data.papers);
+    }
+    
+    function renderMethodologyStats(comparison) {
+        if (!comparison || !comparison.counts) {
+            return '<p>No methodology data available</p>';
+        }
+        
+        const counts = comparison.counts;
+        const total = comparison.total_papers || 0;
+        
+        // Create a bar chart-like display of methodology distribution
+        let statsHTML = '<div class="methodology-distribution">';
+        
+        for (const [methodType, count] of Object.entries(counts)) {
+            const percentage = total > 0 ? (count / total * 100).toFixed(0) : 0;
+            const displayName = formatMethodologyName(methodType);
+            
+            statsHTML += `
+                <div class="methodology-bar">
+                    <div class="methodology-label">${displayName}</div>
+                    <div class="methodology-bar-container">
+                        <div class="methodology-bar-fill" style="width: ${percentage}%"></div>
+                        <div class="methodology-count">${count} (${percentage}%)</div>
                     </div>
                 </div>
             `;
         }
         
-        html += `</div>`;
-        container.innerHTML = html;
-        
-        // If papers exist, load visualizations
-        if (data.papers && data.papers.length > 0) {
-            loadVisualization('network', data.papers);
-            
-            // Add event listeners for visualization tabs
-            document.querySelectorAll('.viz-tab').forEach(tab => {
-                tab.addEventListener('click', () => {
-                    // Update active tab
-                    document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
-                    tab.classList.add('active');
-                    
-                    // Load the corresponding visualization
-                    const vizType = tab.getAttribute('data-viz');
-                    loadVisualization(vizType, data.papers);
-                    
-                    // Update description
-                    const descriptions = {
-                        'network': 'This visualization helps you understand relationships between papers based on their citations. Hover over elements to see detailed information.',
-                        'timeline': 'This timeline shows the progression of research on this topic over time. Explore how the field has evolved.',
-                        'authors': 'This network displays collaboration relationships between authors. Larger nodes represent authors with more papers.'
-                    };
-                    document.querySelector('.viz-description p').textContent = descriptions[vizType];
-                });
-            });
-            
-            // Export button event listener
-            document.getElementById('exportViz').addEventListener('click', () => {
-                const activeVizType = document.querySelector('.viz-tab.active').getAttribute('data-viz');
-                exportVisualization(activeVizType);
-            });
-        }
+        statsHTML += '</div>';
+        return statsHTML;
     }
-    
-    // Function to load visualizations from the server
-    async function loadVisualization(vizType, papers) {
-        const vizContent = document.querySelector('.viz-content');
-        vizContent.innerHTML = `
-            <div class="viz-loading">
-                <div class="spinner"></div>
-                <span>Loading visualization...</span>
+
+    function formatMethodologyName(methodType) {
+        // Convert snake_case to Title Case with proper naming
+        const methodNames = {
+            'empirical': 'Empirical Research',
+            'theoretical': 'Theoretical Analysis',
+            'review': 'Literature Review',
+            'case_study': 'Case Study',
+            'simulation': 'Simulation',
+            'design': 'Design/Implementation',
+            'unknown': 'Other/Unknown'
+        };
+        
+        return methodNames[methodType] || methodType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    function renderPaperCard(paper) {
+        const methodologyInfo = paper.methodology || { primary_type: 'unknown' };
+        const methodologyType = formatMethodologyName(methodologyInfo.primary_type);
+        const methodologySentences = methodologyInfo.key_sentences || [];
+        const methodologyHighlight = methodologySentences.length > 0 
+            ? `<div class="methodology-highlight">${methodologySentences[0]}</div>` 
+            : '';
+        
+        return `
+            <div class="paper-card methodology-${methodologyInfo.primary_type}">
+                <div class="paper-methodology-badge">${methodologyType}</div>
+                <h4 class="paper-title">${escapeHtml(paper.title)}</h4>
+                <div class="paper-authors">${escapeHtml(paper.authors)}</div>
+                <div class="paper-date">Published: ${escapeHtml(paper.published || 'Unknown')}</div>
+                <div class="paper-summary">${escapeHtml(paper.summary.substring(0, 200))}${paper.summary.length > 200 ? '...' : ''}</div>
+                ${methodologyHighlight}
+                <div class="paper-links">
+                    <a href="${paper.pdf_url}" target="_blank" class="paper-link">View PDF</a>
+                    <button class="paper-methodology-btn" onclick="showMethodologyDetails('${escapeHtml(paper.title.replace(/'/g, "\\'"))}')">Methodology Details</button>
+                </div>
             </div>
         `;
+    }
+
+    async function filterByMethodology(methodologyType) {
+        const papersContainer = document.getElementById('papersContainer');
+        const methodologyStats = document.getElementById('methodologyStats');
+        
+        if (!papersContainer || !window.currentPapers) return;
+        
+        // Show loading indicator
+        papersContainer.innerHTML = '<div class="loading"><div class="spinner"></div><p>Filtering papers...</p></div>';
         
         try {
-            const response = await fetch('/api/academic/visualizations', {
+            // If "all" is selected, use all papers
+            if (methodologyType === 'all') {
+                // Redisplay all papers
+                papersContainer.innerHTML = `
+                    <h3>Academic Papers</h3>
+                    <div class="papers-list">
+                        ${window.currentPapers.map(paper => renderPaperCard(paper)).join('')}
+                    </div>
+                `;
+                
+                // Update methodology stats with original comparison
+                if (methodologyStats && window.methodologyComparison) {
+                    methodologyStats.innerHTML = renderMethodologyStats(window.methodologyComparison);
+                }
+                return;
+            }
+            
+            // Call API to filter papers by methodology
+            const response = await fetch('/api/methodology-filter', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    type: vizType,
-                    papers: papers.map(paper => {
-                        // Try to extract year from published string (e.g., "2022-01-01" -> 2022)
-                        let publishedYear = null;
-                        if (paper.published) {
-                            const yearMatch = paper.published.match(/\d{4}/);
-                            if (yearMatch) {
-                                publishedYear = parseInt(yearMatch[0]);
-                            }
-                        }
-                        
-                        // Convert authors string to list format for the author visualization
-                        let authorsList = [];
-                        if (paper.authors) {
-                            const authorNames = paper.authors.split(',').map(a => a.trim());
-                            authorsList = authorNames.map(name => ({ name }));
-                        }
-                        
-                        return {
-                            title: paper.title,
-                            authors: paper.authors,
-                            authors_list: authorsList,
-                            published: paper.published,
-                            published_year: publishedYear,
-                            summary: paper.summary,
-                            pdf_url: paper.pdf_url,
-                            arxiv_id: paper.id || paper.entry_id || paper.title.substring(0, 20).replace(/\s+/g, '-').toLowerCase()
-                        };
-                    })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    papers: window.currentPapers,
+                    methodology_type: methodologyType
                 })
             });
             
             if (!response.ok) {
-                throw new Error(`Failed to load visualization: ${response.status}`);
+                throw new Error('Failed to filter papers by methodology');
             }
             
             const data = await response.json();
             
-            if (data.error) {
-                throw new Error(data.error);
+            // Render filtered papers
+            papersContainer.innerHTML = `
+                <h3>Academic Papers (${data.papers.length} ${formatMethodologyName(methodologyType)} papers)</h3>
+                <div class="papers-list">
+                    ${data.papers.map(paper => renderPaperCard(paper)).join('')}
+                </div>
+            `;
+            
+            // Update methodology stats
+            if (methodologyStats) {
+                methodologyStats.innerHTML = renderMethodologyStats(data.methodology_comparison);
             }
             
-            // Create a container for the visualization
-            vizContent.innerHTML = `<div id="${vizType}-container" class="${vizType}-container"></div>`;
-            
-            // The backend now returns direct data and layout objects
-            if (data.data && data.layout) {
-                Plotly.newPlot(
-                    `${vizType}-container`, 
-                    data.data, 
-                    data.layout, 
-                    {responsive: true}
-                );
-            } else {
-                throw new Error("No visualization data received from server");
-            }
-            
-        } catch (error) {
-            console.error("Visualization error:", error);
-            vizContent.innerHTML = `
-                <div class="viz-placeholder">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                    <h3>Visualization unavailable</h3>
-                    <p>${error.message || "Could not generate visualization. Try searching for a topic with more papers."}</p>
-                    <p>Try searching for a topic with more papers (5-7 minimum) for better visualizations.</p>
+        } catch (err) {
+            console.error("Error filtering papers by methodology:", err);
+            papersContainer.innerHTML = `
+                <h3>Academic Papers</h3>
+                <div class="error">Error filtering papers: ${err.message}</div>
+                <div class="papers-list">
+                    ${window.currentPapers.map(paper => renderPaperCard(paper)).join('')}
                 </div>
             `;
         }
     }
 
-    // Function to export visualization as image
-    function exportVisualization(vizType) {
-        const vizElement = document.getElementById(`${vizType}-container`);
-        if (!vizElement) return;
+    function showMethodologyDetails(paperTitle) {
+        if (!window.currentPapers) return;
         
-        Plotly.toImage(vizElement, {
-            format: 'png',
-            height: 800,
-            width: 1200
-        }).then(function(dataUrl) {
-            // Create a download link
-            const downloadLink = document.createElement('a');
-            downloadLink.href = dataUrl;
-            downloadLink.download = `sentino-${vizType}-visualization.png`;
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-        }).catch(function(error) {
-            console.error('Error exporting visualization:', error);
-            alert('Failed to export visualization. Please try again.');
+        // Find the paper by title
+        const paper = window.currentPapers.find(p => p.title === paperTitle);
+        if (!paper || !paper.methodology) return;
+        
+        // Create modal for methodology details
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.id = 'methodologyModal';
+        
+        const methodology = paper.methodology;
+        const keySentences = methodology.key_sentences || [];
+        const confidenceScores = methodology.confidence_scores || {};
+        
+        // Format confidence scores as percentage bars
+        let scoresHTML = '';
+        for (const [type, score] of Object.entries(confidenceScores)) {
+            const percentage = (score * 100).toFixed(1);
+            const displayName = formatMethodologyName(type);
+            
+            scoresHTML += `
+                <div class="confidence-bar">
+                    <div class="confidence-label">${displayName}</div>
+                    <div class="confidence-bar-container">
+                        <div class="confidence-bar-fill" style="width: ${percentage}%"></div>
+                        <div class="confidence-value">${percentage}%</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Format key sentences
+        const sentencesHTML = keySentences.length > 0 
+            ? `<div class="key-sentences"><h4>Key Methodology Sentences</h4>${keySentences.map(s => `<p>${s}</p>`).join('')}</div>`
+            : '<p>No key methodology sentences found.</p>';
+        
+        // Create modal content
+        modal.innerHTML = `
+            <div class="modal-content methodology-modal">
+                <span class="modal-close">&times;</span>
+                <h3>Methodology Analysis: ${escapeHtml(paper.title)}</h3>
+                
+                <div class="methodology-type">
+                    <h4>Primary Methodology: ${formatMethodologyName(methodology.primary_type)}</h4>
+                </div>
+                
+                <div class="methodology-confidence">
+                    <h4>Methodology Confidence Scores</h4>
+                    ${scoresHTML}
+                </div>
+                
+                ${sentencesHTML}
+            </div>
+        `;
+        
+        // Add modal to body
+        document.body.appendChild(modal);
+        
+        // Show modal
+        modal.style.display = 'block';
+        
+        // Close button functionality
+        const closeBtn = modal.querySelector('.modal-close');
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+            modal.remove();
+        };
+        
+        // Close when clicking outside of modal content
+        window.onclick = function(event) {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+                modal.remove();
+            }
+        };
+    }
+
+    function initializeVisualizationTabs(papers) {
+        const vizTabs = document.querySelectorAll('.viz-tab');
+        const vizContainer = document.getElementById('vizContainer');
+        const vizDescription = document.getElementById('vizDescription');
+        
+        if (!vizTabs.length || !vizContainer || !vizDescription) return;
+        
+        // Description for each visualization type
+        const descriptions = {
+            'network': 'This network visualization shows citation relationships between papers. Each node represents a paper, with edges showing citations.',
+            'timeline': 'This timeline shows the progression of research on this topic over time. Explore how the field has evolved.',
+            'authors': 'This visualization shows collaboration networks between authors. Larger nodes indicate authors with more papers.',
+            'methodology': 'This visualization shows the distribution of research methodologies across papers. It helps identify predominant research approaches used in this field.'
+        };
+        
+        // Initially load the network visualization (active by default)
+        loadVisualization('network', papers, vizContainer);
+        
+        // Add click handlers for tabs
+        vizTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Update active tab
+                vizTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Get visualization type
+                const vizType = tab.getAttribute('data-viz');
+                
+                // Update description
+                vizDescription.textContent = descriptions[vizType] || '';
+                
+                // Load visualization
+                loadVisualization(vizType, papers, vizContainer);
+            });
         });
     }
-    
-    // Check for URL parameters to handle searches from history/favorites
-    const urlParams = new URLSearchParams(window.location.search);
-    const prefilledQuery = urlParams.get('query');
-    const searchType = urlParams.get('type');
-    
-    if (prefilledQuery && searchType) {
-        // Handle the search based on the type
-        switch (searchType) {
-            case 'deep':
-                document.querySelector('.nav-link[data-view="deep-analysis"]').click();
-                document.getElementById('deepAnalysisInput').value = prefilledQuery;
-                setTimeout(() => {
-                    document.getElementById('deepAnalysisForm').dispatchEvent(new Event('submit'));
-                }, 100);
-                break;
+
+    async function loadVisualization(vizType, papers, container) {
+        // Show loading indicator
+        container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Generating visualization...</p></div>';
+        
+        try {
+            // If methodology visualization, render locally
+            if (vizType === 'methodology') {
+                renderMethodologyVisualization(papers, container);
+                return;
+            }
             
-            case 'academic':
-                document.querySelector('.nav-link[data-view="academic"]').click();
-                document.getElementById('academicInput').value = prefilledQuery;
-                setTimeout(() => {
-                    document.getElementById('academicForm').dispatchEvent(new Event('submit'));
-                }, 100);
-                break;
+            // For other visualizations, call the server API
+            const response = await fetch('/api/academic/visualizations', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    papers: papers,
+                    type: vizType
+                })
+            });
             
-            default: // 'quick' or any other value
-                document.querySelector('.nav-link[data-view="search"]').click();
-                document.getElementById('searchInput').value = prefilledQuery;
-                setTimeout(() => {
-                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
-                }, 100);
+            if (!response.ok) {
+                throw new Error('Failed to generate visualization');
+            }
+            
+            const data = await response.json();
+            
+            // Create Plotly visualization
+            Plotly.newPlot(container, data.data, data.layout, {responsive: true});
+            
+        } catch (err) {
+            console.error(`Error generating ${vizType} visualization:`, err);
+            container.innerHTML = `<div class="error">Error generating visualization: ${err.message}</div>`;
+        }
+    }
+
+    function renderMethodologyVisualization(papers, container) {
+        if (!papers || papers.length === 0) {
+            container.innerHTML = '<div class="error">No papers available for visualization</div>';
+            return;
         }
         
-        // Clean the URL without reloading the page
-        window.history.replaceState({}, document.title, window.location.pathname);
-    } else {
-        // Initialize: load last active view or default to welcome
-        const lastView = localStorage.getItem('lastView');
-        if (lastView) {
-            showView(lastView);
-        } else {
-            showView('welcome');
-        }
+        // Count methodologies
+        const methodologyCounts = {};
+        papers.forEach(paper => {
+            if (paper.methodology && paper.methodology.primary_type) {
+                const methodType = paper.methodology.primary_type;
+                methodologyCounts[methodType] = (methodologyCounts[methodType] || 0) + 1;
+            }
+        });
+        
+        // Prepare data for Plotly
+        const methodTypes = Object.keys(methodologyCounts);
+        const counts = Object.values(methodologyCounts);
+        
+        // Custom colors for methodology types
+        const colorMap = {
+            'empirical': '#4285F4',
+            'theoretical': '#EA4335',
+            'review': '#FBBC05',
+            'case_study': '#34A853',
+            'simulation': '#9C27B0',
+            'design': '#FF9800',
+            'unknown': '#9E9E9E'
+        };
+        
+        const colors = methodTypes.map(type => colorMap[type] || '#9E9E9E');
+        
+        // Display names for methodology types
+        const displayNames = methodTypes.map(formatMethodologyName);
+        
+        // Create pie chart
+        const data = [{
+            type: 'pie',
+            labels: displayNames,
+            values: counts,
+            marker: {
+                colors: colors
+            },
+            textinfo: 'label+percent',
+            hoverinfo: 'label+value+percent',
+            textposition: 'outside',
+            automargin: true
+        }];
+        
+        const layout = {
+            title: 'Distribution of Research Methodologies',
+            showlegend: true,
+            legend: {
+                orientation: 'h',
+                y: -0.1
+            },
+            margin: {t: 60, b: 60, l: 20, r: 20}
+        };
+        
+        // Render pie chart
+        Plotly.newPlot(container, data, layout, {responsive: true});
+        
+        // Add table with paper counts by methodology
+        const tableContainer = document.createElement('div');
+        tableContainer.className = 'methodology-table-container';
+        
+        let tableHTML = `
+            <h4>Research Methodologies Breakdown</h4>
+            <table class="methodology-table">
+                <thead>
+                    <tr>
+                        <th>Methodology</th>
+                        <th>Paper Count</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        const total = papers.length;
+        methodTypes.forEach((type, index) => {
+            const count = methodologyCounts[type];
+            const percentage = ((count / total) * 100).toFixed(1);
+            
+            tableHTML += `
+                <tr>
+                    <td class="methodology-name">
+                        <div class="methodology-color-dot" style="background-color: ${colorMap[type] || '#9E9E9E'}"></div>
+                        ${displayNames[index]}
+                    </td>
+                    <td>${count}</td>
+                    <td>${percentage}%</td>
+                </tr>
+            `;
+        });
+        
+        tableHTML += `
+                </tbody>
+            </table>
+        `;
+        
+        tableContainer.innerHTML = tableHTML;
+        
+        // Add the table below the chart
+        container.parentNode.insertBefore(tableContainer, container.nextSibling);
     }
 });
 
@@ -547,3 +842,93 @@ function saveFavorite(name, query, searchType, result = null) {
         alert('An error occurred');
     });
 }
+
+// Search functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const searchForm = document.getElementById('searchForm');
+    const searchInput = document.getElementById('searchInput');
+    const searchResults = document.getElementById('searchResults');
+    const resultsBody = searchResults.querySelector('.results-body');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const clearResults = document.getElementById('clearResults');
+
+    if (searchForm) {
+        searchForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+            
+            if (!query) return;
+
+            // Show loading indicator
+            loadingIndicator.style.display = 'flex';
+            searchResults.style.display = 'none';
+            resultsBody.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        type: 'quick'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Search request failed');
+                }
+
+                const data = await response.json();
+                
+                // Hide loading indicator and show results
+                loadingIndicator.style.display = 'none';
+                searchResults.style.display = 'block';
+
+                // Render results
+                data.results.forEach(result => {
+                    const resultElement = document.createElement('div');
+                    resultElement.className = 'search-result';
+                    resultElement.innerHTML = `
+                        <h3>${result.title}</h3>
+                        <p>${result.snippet}</p>
+                        ${result.source ? `<div class="result-source">Source: ${result.source}</div>` : ''}
+                        ${result.confidence ? `<div class="result-confidence">Confidence: ${result.confidence}%</div>` : ''}
+                    `;
+                    resultsBody.appendChild(resultElement);
+                });
+
+                // If no results
+                if (data.results.length === 0) {
+                    resultsBody.innerHTML = '<div class="no-results">No results found</div>';
+                }
+
+            } catch (error) {
+                console.error('Search error:', error);
+                loadingIndicator.style.display = 'none';
+                searchResults.style.display = 'block';
+                resultsBody.innerHTML = '<div class="error-message">An error occurred while searching. Please try again.</div>';
+            }
+        });
+    }
+
+    // Clear results functionality
+    if (clearResults) {
+        clearResults.addEventListener('click', function() {
+            searchInput.value = '';
+            searchResults.style.display = 'none';
+            resultsBody.innerHTML = '';
+        });
+    }
+
+    // Handle input changes
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            if (!this.value.trim()) {
+                searchResults.style.display = 'none';
+                resultsBody.innerHTML = '';
+            }
+        });
+    }
+});

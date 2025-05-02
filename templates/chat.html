@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentino AI - Document Chat</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body data-theme="{{ user_theme }}">
+    <header>
+        <div class="logo">Sentino AI</div>
+        <nav>
+            <ul>
+                <li><a href="/" class="nav-link">Home</a></li>
+                <li><a href="/#search" class="nav-link">Quick Search</a></li>
+                <li><a href="/#deep-analysis" class="nav-link">Deep Analysis</a></li>
+                <li><a href="/#academic" class="nav-link">Academic Research</a></li>
+            </ul>
+        </nav>
+        <div class="user-actions">
+            {% if current_user.is_authenticated %}
+                <a href="/profile" class="user-profile">
+                    {% if current_user.picture %}
+                        <img src="{{ current_user.picture }}" alt="{{ current_user.name }}" class="user-avatar">
+                    {% else %}
+                        <div class="user-avatar-placeholder">{{ current_user.name[:1] }}</div>
+                    {% endif %}
+                    <span>{{ current_user.name }}</span>
+                </a>
+            {% else %}
+                <a href="/login" class="login-button">Login</a>
+            {% endif %}
+            <button id="themeSwitcher" aria-label="Switch Theme">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path d="M20 15.31L23.31 12 20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69z"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="chat-page">
+            <h1>Document Chat</h1>
+            <p class="view-description">Upload documents and chat with AI about their contents</p>
+            
+            {% if not current_user.is_authenticated %}
+            <div class="alert">
+                <i class="fas fa-exclamation-triangle"></i>
+                Please <a href="{{ url_for('login') }}">login</a> to save your documents and chat history.
+            </div>
+            {% endif %}
+
+            <div class="chat-container">
+                <div class="document-panel">
+                    <h2>My Documents</h2>
+                    <div class="upload-btn-wrapper">
+                        <button class="feature-button">
+                            <i class="fas fa-cloud-upload-alt"></i> Upload Document
+                        </button>
+                        <input type="file" id="document-upload" accept=".pdf,.docx,.txt,.doc">
+                    </div>
+                    
+                    <div id="upload-progress" class="progress" style="display: none;">
+                        <div class="progress-bar"></div>
+                    </div>
+                    
+                    <div id="document-list" class="document-list">
+                        <!-- Documents will be loaded here -->
+                    </div>
+                    
+                    <div id="empty-documents" class="empty-documents" style="display: none;">
+                        <i class="fas fa-file-alt"></i>
+                        <p>No documents yet</p>
+                        <p>Upload a document to get started</p>
+                    </div>
+                </div>
+                
+                <div class="chat-content">
+                    <div class="chat-header">
+                        <h2 class="document-title" id="current-document-title">Select a document to start chatting</h2>
+                        <div class="chat-actions">
+                            <button id="clear-chat" class="feature-button" disabled>
+                                <i class="fas fa-broom"></i> Clear
+                            </button>
+                            <button id="export-chat" class="feature-button" disabled>
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="no-document-message" id="no-document-message">
+                            <i class="fas fa-comments"></i>
+                            <h3>Select a document to start chatting</h3>
+                            <p>Upload a document or select an existing one from the list</p>
+                        </div>
+                        <!-- Chat messages will appear here -->
+                    </div>
+                    
+                    <div class="chat-input">
+                        <form id="chat-form">
+                            <div class="input-container">
+                                <textarea id="message-input" placeholder="Ask a question about your document..." disabled></textarea>
+                                <button type="submit" disabled>
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-left">
+            <button id="backToDocuments" class="feature-button">
+                <i class="fas fa-arrow-left"></i> Back to Documents
+            </button>
+        </div>
+        <div class="footer-right">
+            <span class="copyright">© 2025 Sentino AI</span>
+            {% if current_user.is_authenticated %}
+                <a href="/profile" class="footer-link">Profile</a>
+                <a href="/logout" class="footer-link">Logout</a>
+            {% else %}
+                <a href="/login" class="footer-link">Login</a>
+            {% endif %}
+        </div>
+    </footer>
+
+    <div class="toast-container"></div>
+
+    <!-- JavaScript Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/chat.js"></script>
+</body>
+</html> 

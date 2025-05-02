@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search AI - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <button class="mobile-menu-toggle" aria-label="Toggle navigation menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <a href="/" class="logo">Search AI</a>
+        <nav>
+            <ul>
+                <li><a href="/" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">Home</a></li>
+                <li><a href="/search" class="nav-link {% if request.endpoint == 'search' %}active{% endif %}">Search</a></li>
+                <li><a href="/chat" class="nav-link {% if request.endpoint == 'chat' %}active{% endif %}">Chat</a></li>
+                <li><a href="/papers" class="nav-link {% if request.endpoint == 'papers' %}active{% endif %}">Papers</a></li>
+            </ul>
+            <a href="/settings" class="settings-link">
+                <i class="fas fa-cog"></i>
+                Settings
+            </a>
+        </nav>
+        <div class="user-actions">
+            {% if current_user.is_authenticated %}
+            <button id="themeSwitcher" aria-label="Toggle theme">
+                <i class="fas fa-moon"></i>
+            </button>
+            <a href="/profile" class="user-profile">
+                {% if current_user.profile_picture %}
+                <img src="{{ url_for('profile.get_avatar') }}" alt="Profile Picture" class="user-avatar">
+                {% else %}
+                <div class="user-avatar-placeholder">{{ current_user.username[0].upper() }}</div>
+                {% endif %}
+                <span>{{ current_user.username }}</span>
+            </a>
+            <a href="/logout" class="logout-button">Logout</a>
+            {% else %}
+            <button id="themeSwitcher" aria-label="Toggle theme">
+                <i class="fas fa-moon"></i>
+            </button>
+            <a href="/login" class="login-button">Login</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <div class="footer-left">
+            <span class="copyright">&copy; 2024 Search AI. All rights reserved.</span>
+        </div>
+        <div class="footer-right">
+            <a href="/privacy" class="footer-link">Privacy Policy</a>
+            <a href="/terms" class="footer-link">Terms of Service</a>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const mobileMenuToggle = document.querySelector('.mobile-menu-toggle');
+        const nav = document.querySelector('nav');
+        
+        mobileMenuToggle.addEventListener('click', () => {
+            mobileMenuToggle.classList.toggle('active');
+            nav.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!nav.contains(e.target) && !mobileMenuToggle.contains(e.target) && nav.classList.contains('active')) {
+                mobileMenuToggle.classList.remove('active');
+                nav.classList.remove('active');
+            }
+        });
+
+        // Theme switcher
+        const themeSwitcher = document.getElementById('themeSwitcher');
+        const themeIcon = themeSwitcher.querySelector('i');
+        
+        // Check for saved theme preference
+        const savedTheme = localStorage.getItem('theme') || 'classic';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        updateThemeIcon(savedTheme);
+        
+        themeSwitcher.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            let newTheme;
+            
+            switch(currentTheme) {
+                case 'classic':
+                    newTheme = 'amber';
+                    break;
+                case 'amber':
+                    newTheme = 'blue';
+                    break;
+                default:
+                    newTheme = 'classic';
+            }
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        });
+        
+        function updateThemeIcon(theme) {
+            themeIcon.className = theme === 'classic' ? 'fas fa-moon' : 
+                                theme === 'amber' ? 'fas fa-sun' : 
+                                'fas fa-star';
+        }
+    </script>
+</body>
+</html> 

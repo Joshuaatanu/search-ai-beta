@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="stylesheet" href="/static/css/auth.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -58,7 +59,28 @@
       <div class="tab-panel active" id="profile-panel">
         <div class="settings-card">
           <h2>Edit Profile</h2>
-          <form action="/account/update" method="POST">
+          <form action="/account/update" method="POST" enctype="multipart/form-data">
+            <div class="profile-picture-upload">
+              <div class="current-picture">
+                {% if user.picture %}
+                  <img src="{{ user.picture }}" alt="{{ user.name }}" class="picture-preview">
+                {% else %}
+                  <div class="picture-placeholder">{{ user.name[:1] }}</div>
+                {% endif %}
+              </div>
+              <div class="upload-controls">
+                <label for="profile_picture" class="file-upload-label">
+                  <i class="fas fa-upload"></i> Change Picture
+                </label>
+                <input type="file" id="profile_picture" name="profile_picture" accept="image/*" class="file-upload-input">
+                <small>Maximum size: 5MB. Recommended: square image (1:1)</small>
+                <div id="picture-preview-container" class="hidden">
+                  <img id="picture-preview" src="#" alt="Preview">
+                  <button type="button" id="remove-picture" class="remove-button">Remove</button>
+                </div>
+              </div>
+            </div>
+            
             <div class="form-group">
               <label for="username">Username</label>
               <input type="text" id="username" name="username" value="{{ user.username }}" required>
@@ -111,7 +133,8 @@
               <label for="accent_color">Accent Color</label>
               <div class="color-picker-container">
                 <input type="color" id="accent_color" name="accent_color" value="{{ user.preferences.get('accent_color', '#007bff') }}">
-                <span class="color-value">#007bff</span>
+                <span class="color-value" id="color-value-text">{{ user.preferences.get('accent_color', '#007bff') }}</span>
+                <div class="color-preview" id="color-preview" style="background-color: {{ user.preferences.get('accent_color', '#007bff') }};"></div>
               </div>
             </div>
             
@@ -468,6 +491,155 @@
         }, 5000);
       }
     });
+    
+    // Two-Factor Authentication toggle
+    const twoFactorToggle = document.getElementById('two_factor_toggle');
+    const toggleLabel = document.querySelector('.toggle-label');
+    const twoFactorSetup = document.getElementById('two_factor_setup');
+    const setupButton = document.getElementById('setup_2fa_button');
+    
+    if (twoFactorToggle) {
+      twoFactorToggle.addEventListener('change', function() {
+        const enabled = this.checked;
+        
+        // Update the label
+        toggleLabel.textContent = enabled ? 'Enabled' : 'Disabled';
+        
+        // Show/hide setup button
+        if (enabled) {
+          twoFactorSetup.classList.remove('hidden');
+        } else {
+          twoFactorSetup.classList.add('hidden');
+        }
+        
+        // Send request to server
+        fetch('/account/toggle-2fa', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            enabled: enabled
+          })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (!data.success) {
+            // Revert the toggle if there was an error
+            this.checked = !enabled;
+            toggleLabel.textContent = !enabled ? 'Enabled' : 'Disabled';
+            
+            if (!enabled) {
+              twoFactorSetup.classList.remove('hidden');
+            } else {
+              twoFactorSetup.classList.add('hidden');
+            }
+            
+            // Show error
+            alert(data.message || 'Failed to update two-factor authentication settings');
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          
+          // Revert the toggle
+          this.checked = !enabled;
+          toggleLabel.textContent = !enabled ? 'Enabled' : 'Disabled';
+          
+          if (!enabled) {
+            twoFactorSetup.classList.remove('hidden');
+          } else {
+            twoFactorSetup.classList.add('hidden');
+          }
+          
+          // Show error
+          alert('Failed to update two-factor authentication settings. Please try again.');
+        });
+      });
+    }
+    
+    // Setup 2FA button
+    if (setupButton) {
+      setupButton.addEventListener('click', function() {
+        window.location.href = '/account/setup-2fa';
+      });
+    }
+    
+    // Logout from all devices
+    const logoutAllButton = document.getElementById('logout_all_button');
+    
+    if (logoutAllButton) {
+      logoutAllButton.addEventListener('click', function() {
+        if (confirm('Are you sure you want to log out from all other devices?')) {
+          // Send request to server
+          fetch('/account/logout-all-devices', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              alert(data.message || 'You have been logged out from all other devices.');
+            } else {
+              alert(data.message || 'Failed to log out from all devices. Please try again.');
+            }
+          })
+          .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to log out from all devices. Please try again.');
+          });
+        }
+      });
+    }
+    
+    // Profile picture upload preview
+    const profilePictureInput = document.getElementById('profile_picture');
+    const picturePreviewContainer = document.getElementById('picture-preview-container');
+    const picturePreview = document.getElementById('picture-preview');
+    const removeButton = document.getElementById('remove-picture');
+    
+    if (profilePictureInput) {
+      profilePictureInput.addEventListener('change', function(e) {
+        if (this.files && this.files[0]) {
+          // Check file size (5MB max)
+          if (this.files[0].size > 5 * 1024 * 1024) {
+            alert('File size exceeds 5MB limit.');
+            this.value = '';
+            return;
+          }
+          
+          const reader = new FileReader();
+          
+          reader.onload = function(e) {
+            picturePreview.src = e.target.result;
+            picturePreviewContainer.classList.remove('hidden');
+          }
+          
+          reader.readAsDataURL(this.files[0]);
+        }
+      });
+    }
+    
+    if (removeButton) {
+      removeButton.addEventListener('click', function() {
+        profilePictureInput.value = '';
+        picturePreviewContainer.classList.add('hidden');
+      });
+    }
+    
+    // Color picker preview
+    const accentColorInput = document.getElementById('accent_color');
+    const colorValueText = document.getElementById('color-value-text');
+    const colorPreview = document.getElementById('color-preview');
+    
+    if (accentColorInput) {
+      accentColorInput.addEventListener('input', function() {
+        colorValueText.textContent = this.value;
+        colorPreview.style.backgroundColor = this.value;
+      });
+    }
   </script>
 </body>
 </html> 

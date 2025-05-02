@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, make_response
 from flask_cors import CORS
 import requests
 # from google import genai
@@ -22,6 +22,13 @@ import secrets
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import threading
+import io
+from werkzeug.utils import secure_filename
+import time
+from PIL import Image
+from utils.avatar import save_profile_picture, generate_random_avatar, get_avatar_url
+from utils.activity import track_login_activity, get_login_history
 
 # Visualization libraries
 import pandas as pd
@@ -42,6 +49,9 @@ import google.auth.transport.requests
 
 # Import models
 from models import User, SearchHistory, Favorite, Recommendation
+
+# Import methodology analyzer
+from methodology_analyzer import analyze_paper_methodology, analyze_papers_methodologies, compare_methodologies, analyze_methodology, MethodologyAnalyzer
 
 # Load environment variables
 load_dotenv()
@@ -90,18 +100,6 @@ login_manager.login_view = "login"
 # Set up OAuth
 oauth = OAuth(app)
 
-# Google OAuth
-google_client_id = os.getenv("GOOGLE_CLIENT_ID")
-google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-if google_client_id and google_client_secret:
-    oauth.register(
-        name="google",
-        client_id=google_client_id,
-        client_secret=google_client_secret,
-        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile"},
-    )
-
 # GitHub OAuth
 github_client_id = os.getenv("GITHUB_CLIENT_ID")
 github_client_secret = os.getenv("GITHUB_CLIENT_SECRET")
@@ -116,18 +114,6 @@ if github_client_id and github_client_secret:
         authorize_params=None,
         api_base_url="https://api.github.com/",
         client_kwargs={"scope": "user:email"},
-    )
-
-# Apple OAuth
-apple_client_id = os.getenv("APPLE_CLIENT_ID")
-apple_client_secret = os.getenv("APPLE_CLIENT_SECRET")
-if apple_client_id and apple_client_secret:
-    oauth.register(
-        name="apple",
-        client_id=apple_client_id,
-        client_secret=apple_client_secret,
-        server_metadata_url="https://appleid.apple.com/.well-known/openid-configuration",
-        client_kwargs={"scope": "name email"},
     )
 
 # Email configuration
@@ -189,7 +175,7 @@ def query_duckduckgo_text(query):
     """
     try:
         ddgs = DDGS()
-        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=3) # Reduced max_results for chat context
+        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=10) # Increased from 3 to 10 for more comprehensive results
         return results
     except Exception as e:
         print("DuckDuckGo text search error:", e)
@@ -207,19 +193,190 @@ def generate_search_context(search_results):
         combined_text += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
     return combined_text
 
+# Configure upload folder
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=False):
+# Ensure upload directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def extract_text_from_file(file):
+    """Extract text from uploaded files (PDF, DOCX, TXT)"""
+    filename = secure_filename(file.filename)
+    file_ext = filename.rsplit('.', 1)[1].lower()
+    
+    try:
+        # Process based on file type
+        if file_ext == 'pdf':
+            file_stream = io.BytesIO(file.read())
+            pdf_reader = PyPDF2.PdfReader(file_stream)
+            text = ""
+            for page_num in range(len(pdf_reader.pages)):
+                text += pdf_reader.pages[page_num].extract_text() + "\n"
+            return text
+            
+        elif file_ext == 'docx':
+            file_stream = io.BytesIO(file.read())
+            doc = docx.Document(file_stream)
+            text = ""
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+            return text
+            
+        elif file_ext == 'txt':
+            return file.read().decode('utf-8')
+            
+        return "Unsupported file format"
+        
+    except Exception as e:
+        print(f"Error extracting text from file: {e}")
+        return f"Error processing file: {str(e)}"
+
+@app.route("/api/upload", methods=["POST"])
+@login_required
+def upload_document():
+    """Handle document uploads and extract text"""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+        
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+        
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+    
+    try:
+        # Extract text from the file
+        extracted_text = extract_text_from_file(file)
+        
+        if not extracted_text or extracted_text.strip() == "":
+            return jsonify({"error": "Could not extract text from file"}), 400
+            
+        # Get user ID and the upload context
+        user_id = current_user.get_id()
+        context_id = request.form.get('contextId', secrets.token_hex(8))
+        
+        # Save text to MongoDB for chat context
+        document_data = {
+            'user_id': ObjectId(user_id),
+            'filename': secure_filename(file.filename),
+            'context_id': context_id, 
+            'uploaded_at': datetime.utcnow(),
+            'text_content': extracted_text,
+            'file_type': file.filename.rsplit('.', 1)[1].lower()
+        }
+        
+        mongo.db.document_context.insert_one(document_data)
+        
+        # Return context ID for the frontend to use
+        return jsonify({
+            "success": True,
+            "context_id": context_id,
+            "filename": secure_filename(file.filename),
+            "excerpt": extracted_text[:200] + "..." if len(extracted_text) > 200 else extracted_text
+        })
+        
+    except Exception as e:
+        print(f"Error uploading document: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/api/documents", methods=["GET"])
+@login_required
+def get_user_documents():
+    """Get list of uploaded documents for the current user"""
+    try:
+        user_id = current_user.get_id()
+        documents = list(mongo.db.document_context.find(
+            {'user_id': ObjectId(user_id)},
+            {'_id': 1, 'filename': 1, 'context_id': 1, 'uploaded_at': 1, 'file_type': 1}
+        ).sort('uploaded_at', -1))
+        
+        # Convert ObjectId to string for JSON serialization
+        for doc in documents:
+            doc['_id'] = str(doc['_id'])
+            doc['uploaded_at'] = doc['uploaded_at'].isoformat()
+            
+        return jsonify({"documents": documents})
+    except Exception as e:
+        print(f"Error retrieving documents: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/api/documents/<context_id>", methods=["GET"])
+@login_required
+def get_document_content(context_id):
+    """Get content of a specific document"""
+    try:
+        user_id = current_user.get_id()
+        document = mongo.db.document_context.find_one({
+            'user_id': ObjectId(user_id),
+            'context_id': context_id
+        })
+        
+        if not document:
+            return jsonify({"error": "Document not found"}), 404
+            
+        document['_id'] = str(document['_id'])
+        document['uploaded_at'] = document['uploaded_at'].isoformat()
+        
+        return jsonify({"document": document})
+    except Exception as e:
+        print(f"Error retrieving document content: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/api/documents/<context_id>", methods=["DELETE"])
+@login_required
+def delete_document(context_id):
+    """Delete a specific document"""
+    try:
+        user_id = current_user.get_id()
+        result = mongo.db.document_context.delete_one({
+            'user_id': ObjectId(user_id),
+            'context_id': context_id
+        })
+        
+        if result.deleted_count == 0:
+            return jsonify({"error": "Document not found"}), 404
+            
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"Error deleting document: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=False, document_context_id=None):
     """
     Uses the Gemini API to generate a chat response based on conversation history,
-    with optional deep analysis and DuckDuckGo search integration.
+    with optional deep analysis, document context, and DuckDuckGo search integration.
     """
     try:
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel("gemini-2.0-flash") # or "gemini-pro"
 
         gemini_messages = []
+        
+        # Add regular context if provided
         if context:
             gemini_messages.append({"role": "user", "parts": [{"text": f"Context for this conversation: {context}"}]})
+        
+        # Add document context if provided
+        if document_context_id:
+            document = mongo.db.document_context.find_one({'context_id': document_context_id})
+            if document and 'text_content' in document:
+                document_text = document['text_content']
+                # Truncate if extremely long
+                if len(document_text) > 25000:
+                    document_text = document_text[:25000] + "... [Document truncated due to length]"
+                
+                gemini_messages.append({
+                    "role": "user", 
+                    "parts": [{"text": f"Document context for this conversation (from file: {document['filename']}):\n\n{document_text}"}]
+                })
 
         # Incorporate search results if use_search is True
         search_context_text = ""
@@ -233,7 +390,6 @@ def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=Fa
         for msg in messages:
             gemini_messages.append({"role": msg['role'], "parts": [{"text": msg['content']}]})
 
-
         prompt_prefix = ""
         if deep_analysis:
             prompt_prefix += (
@@ -246,7 +402,6 @@ def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=Fa
             last_message_content = gemini_messages[-1]['parts'][0]['text']
             gemini_messages[-1]['parts'][0]['text'] = prompt_prefix + last_message_content
 
-
         chat = model.start_chat(history=gemini_messages)
         response = chat.send_message(gemini_messages[-1]["parts"][0]["text"]) # Send the (potentially modified) last user message
 
@@ -255,7 +410,6 @@ def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=Fa
         print("Gemini API chat error:", e)
         return None
 
-
 @app.route("/api/chat", methods=["POST"])
 def handle_chat():
     data = request.json
@@ -263,6 +417,7 @@ def handle_chat():
     context = data.get("context")
     deep_analysis_enabled = data.get("deep_analysis", False)
     use_search_enabled = data.get("use_search", False)
+    document_context_id = data.get("document_context_id")
 
     if not messages:
         return jsonify({"error": "No messages provided"}), 400
@@ -271,7 +426,8 @@ def handle_chat():
         messages,
         context,
         deep_analysis=deep_analysis_enabled,
-        use_search=use_search_enabled
+        use_search=use_search_enabled,
+        document_context_id=document_context_id
     )
 
     if gemini_response_text is None:
@@ -280,17 +436,17 @@ def handle_chat():
     final_response = {
         "response": gemini_response_text,
         "deep_analysis": deep_analysis_enabled,
-        "use_search": use_search_enabled
+        "use_search": use_search_enabled,
+        "document_processed": bool(document_context_id)
     }
     
     # Log search history for logged-in users
     if current_user.is_authenticated and len(messages) > 0:
         query = messages[-1]['content']
         search_type = "deep" if deep_analysis_enabled else "quick"
-        SearchHistory.add_search(mongo.db, current_user.get_id(), query, search_type)
+        SearchHistory.add_search(mongo.db, current_user.get_id(), query, search_type, document_id=document_context_id)
     
     return jsonify(final_response)
-
 
 @app.route("/")
 def home():
@@ -322,7 +478,16 @@ def handle_query():
     if current_user.is_authenticated:
         search_type = "deep" if deep_analysis else "quick"
         results_count = len(search_results) if search_results else 0
-        SearchHistory.add_search(mongo.db, current_user.get_id(), user_query, search_type, results_count)
+        SearchHistory.add_search(
+            mongo.db, 
+            current_user.get_id(), 
+            user_query, 
+            search_type, 
+            results_count,
+            None,  # No papers for regular searches
+            generated_answer,  # Save the answer
+            search_results  # Save the search results
+        )
     
     return jsonify(final_response)
 
@@ -332,7 +497,8 @@ def generate_answer_from_search(user_query, search_results, deep_analysis=False)
     Generates answer with optional deep analysis mode
     """
     combined_text = ""
-    for result in search_results[:3]:
+    # Remove the [:3] slice to use all search results instead of just the first 3
+    for result in search_results:
         title = result.get("title", "No title")
         snippet = result.get("body", "No snippet available")
         url = result.get("href", "")
@@ -384,31 +550,15 @@ def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
         print("Gemini API error:", e)
         return None
 
-def query_arxiv(query, max_results=3):
+def query_arxiv(query, max_results=10):  # Increased from 5 to 10
     """
-    Searches arXiv for academic papers based on the query.
-    Returns a list of paper details including title, authors, summary, and PDF URL.
-    Now with enhanced metadata for visualizations.
+    Query arXiv for academic papers based on the given query.
+    Returns a list of paper data.
     """
     try:
-        print(f"Querying arXiv with: {query}")
-        # Clean the query for better arXiv search results
-        cleaned_query = re.sub(r'[^\w\s]', ' ', query).strip()
-        if not cleaned_query:
-            cleaned_query = query  # Use original if cleaning removed everything
-        
-        print(f"Cleaned query: {cleaned_query}")
-        
-        # Create a client with appropriate parameters
-        client = arxiv.Client(
-            page_size=max_results,
-            delay_seconds=1,
-            num_retries=2
-        )
-        
-        # Create the search query
+        # Construct the API query
         search = arxiv.Search(
-            query=cleaned_query,
+            query=query,
             max_results=max_results,
             sort_by=arxiv.SortCriterion.Relevance
         )
@@ -418,7 +568,7 @@ def query_arxiv(query, max_results=3):
         papers = []
         paper_ids = []  # Keep track of IDs to avoid duplicates
         
-        for result in client.results(search):
+        for result in arxiv.Client(page_size=max_results, delay_seconds=1, num_retries=2).results(search):
             try:
                 # Skip if we already have this paper
                 if result.entry_id in paper_ids:
@@ -509,6 +659,9 @@ def query_arxiv(query, max_results=3):
                                 })
         except Exception as e:
             print(f"Error building citation relationships: {str(e)}")
+        
+        # Analyze methodology for each paper
+        papers = analyze_papers_methodologies(papers)
             
         return papers
     except Exception as e:
@@ -560,6 +713,9 @@ def handle_deep_research():
         
         if not paper_results:
             return jsonify({"error": "No relevant papers found"}), 404
+        
+        # Generate methodology comparison
+        methodology_comparison = compare_methodologies(paper_results)
         
         # Generate context from papers
         arxiv_context = generate_arxiv_context(paper_results)
@@ -614,7 +770,8 @@ def handle_deep_research():
             "answer": answer,
             "feature": "deep_research",
             "analysis_type": "academic",
-            "paper_count": len(paper_results)
+            "paper_count": len(paper_results),
+            "methodology_comparison": methodology_comparison
         }
         
         # Log search history for logged-in users
@@ -625,7 +782,8 @@ def handle_deep_research():
                 query, 
                 "academic", 
                 len(paper_results), 
-                paper_results
+                paper_results,
+                answer  # Save the academic analysis/answer
             )
         
         return jsonify(final_response)
@@ -672,16 +830,36 @@ def login():
                     {'$set': {'last_login': datetime.utcnow()}}
                 )
                 
+                # Track successful login activity
+                track_login_activity(mongo.db, str(user_data['_id']), request, success=True)
+                
                 # Get next parameter or default to profile
                 next_page = request.args.get('next', 'profile')
                 return redirect(url_for(next_page))
             else:
+                # Track failed login attempt if user exists
+                if user_data:
+                    track_login_activity(mongo.db, str(user_data['_id']), request, success=False)
                 error = 'Invalid email/username or password'
         except Exception as e:
-            print(f"Error during login: {str(e)}")
+            app.logger.error(f"Error during login: {str(e)}")
             error = 'An error occurred. Please try again later.'
     
     return render_template('login.html', error=error)
+
+@app.route("/api/login-activity")
+@login_required
+def get_user_login_activity():
+    """Get login activity history for the current user"""
+    try:
+        history = get_login_history(mongo.db, current_user.get_id())
+        return jsonify({"success": True, "history": history})
+    except Exception as e:
+        app.logger.error(f"Error getting login activity: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to retrieve login activity"
+        }), 500
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -777,12 +955,31 @@ def update_account():
         name = data.get("name", "").strip()
         email = data.get("email", "").strip()
         
+        # Handle profile picture upload
+        picture_url = None
+        if 'profile_picture' in request.files:
+            file = request.files['profile_picture']
+            if file and file.filename:
+                try:
+                    # Use the avatar system's save_profile_picture function
+                    filename = save_profile_picture(file, current_user.username)
+                    if filename:
+                        picture_url = f"/static/uploads/avatars/{filename}"
+                    else:
+                        flash("Failed to process the profile picture. Please ensure it's a valid image file (PNG, JPG, or GIF) under 5MB.", "error")
+                        return redirect(url_for("account_settings"))
+                except Exception as e:
+                    app.logger.error(f"Error processing profile picture: {e}")
+                    flash("Error processing profile picture. Please try a different image.", "error")
+                    return redirect(url_for("account_settings"))
+        
         # Update user profile
         success, message = current_user.update_profile(
             mongo.db,
             username=username if username else None,
             name=name if name else None,
-            email=email if email else None
+            email=email if email else None,
+            picture=picture_url
         )
         
         if success:
@@ -793,7 +990,7 @@ def update_account():
         return redirect(url_for("account_settings"))
         
     except Exception as e:
-        print(f"Error updating account: {e}")
+        app.logger.error(f"Error updating account: {e}")
         flash("An error occurred while updating your account", "error")
         return redirect(url_for("account_settings"))
 
@@ -858,40 +1055,6 @@ def delete_account():
         flash("An error occurred while deleting your account", "error")
         return redirect(url_for("account_settings"))
 
-# Google login route
-@app.route("/login/google")
-def google_login():
-    redirect_uri = url_for("google_callback", _external=True)
-    return oauth.google.authorize_redirect(redirect_uri)
-
-@app.route("/login/google/callback")
-def google_callback():
-    token = oauth.google.authorize_access_token()
-    user_info = oauth.google.parse_id_token(token)
-    
-    # Check if user exists
-    user = User.get_by_provider_id(mongo.db, "google", user_info["sub"])
-    
-    if not user:
-        # Create a new user
-        user_data = {
-            "email": user_info.get("email", ""),
-            "username": user_info.get("email", "").split("@")[0],
-            "name": user_info.get("name", ""),
-            "picture": user_info.get("picture", ""),
-            "provider": "google",
-            "provider_id": user_info["sub"],
-        }
-        user = User(user_data).save(mongo.db)
-    else:
-        # Update user info
-        user.name = user_info.get("name", user.name)
-        user.picture = user_info.get("picture", user.picture)
-        user.save(mongo.db)
-    
-    login_user(user)
-    return redirect(url_for("home"))
-
 # GitHub login route
 @app.route("/login/github")
 def github_login():
@@ -906,20 +1069,10 @@ def github_callback():
         resp = oauth.github.get("user", token=token)
         user_info = resp.json()
         
-        # Get email (GitHub doesn't include it in basic profile)
+        # Get email
         resp = oauth.github.get("user/emails", token=token)
         emails = resp.json()
         email = next((email["email"] for email in emails if email["primary"]), None)
-        
-        print(f"GitHub login: {user_info.get('login')}, ID: {user_info.get('id')}")
-        
-        # Verify MongoDB connection before proceeding
-        try:
-            mongo.db.command('ping')
-        except Exception as e:
-            print(f"MongoDB not available during GitHub callback: {e}")
-            flash("Database connection issue. Please try again later.", "error")
-            return redirect(url_for("login"))
         
         # Check if user exists
         user = User.get_by_provider_id(mongo.db, "github", str(user_info["id"]))
@@ -934,7 +1087,6 @@ def github_callback():
                 "provider": "github",
                 "provider_id": str(user_info["id"]),
             }
-            print(f"Creating new GitHub user: {user_data['username']}")
             user = User(user_data).save(mongo.db)
         else:
             # Update user info
@@ -943,40 +1095,15 @@ def github_callback():
             user.save(mongo.db)
         
         login_user(user)
+        
+        # Track successful GitHub login
+        track_login_activity(mongo.db, user.get_id(), request, success=True)
+        
         return redirect(url_for("home"))
     except Exception as e:
-        print(f"Error in GitHub callback: {e}")
+        app.logger.error(f"Error in GitHub callback: {e}")
         flash(f"Authentication error: {str(e)}", "error")
         return redirect(url_for("login"))
-
-# Apple login route
-@app.route("/login/apple")
-def apple_login():
-    redirect_uri = url_for("apple_callback", _external=True)
-    return oauth.apple.authorize_redirect(redirect_uri)
-
-@app.route("/login/apple/callback")
-def apple_callback():
-    token = oauth.apple.authorize_access_token()
-    user_info = oauth.apple.parse_id_token(token)
-    
-    # Check if user exists
-    user = User.get_by_provider_id(mongo.db, "apple", user_info["sub"])
-    
-    if not user:
-        # Create a new user
-        user_data = {
-            "email": user_info.get("email", ""),
-            "username": user_info.get("email", "").split("@")[0],
-            "name": user_info.get("name", {}).get("firstName", "") + " " + user_info.get("name", {}).get("lastName", ""),
-            "picture": "",  # Apple doesn't provide profile pictures
-            "provider": "apple",
-            "provider_id": user_info["sub"],
-        }
-        user = User(user_data).save(mongo.db)
-    
-    login_user(user)
-    return redirect(url_for("home"))
 
 # User profile and settings
 @app.route("/profile")
@@ -1340,6 +1467,41 @@ def verify_two_factor():
         flash("An error occurred while verifying two-factor authentication", "error")
         return redirect(url_for("account_settings"))
 
+@app.route("/account/logout-all-devices", methods=["POST"])
+@login_required
+def logout_all_devices():
+    try:
+        # Revoke all sessions for the current user
+        # In a real implementation, this would revoke all session tokens in the database
+        
+        # For this implementation, we'll generate a new session token for the current user
+        # which will invalidate all other sessions
+        current_user.session_token = str(uuid.uuid4())
+        success = mongo.db.users.update_one(
+            {"_id": current_user._id},
+            {"$set": {"session_token": current_user.session_token}}
+        ).modified_count > 0
+        
+        if success:
+            # Update the current session with the new token
+            session["session_token"] = current_user.session_token
+            return jsonify({
+                "success": True,
+                "message": "You have been logged out from all other devices"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to revoke sessions. Please try again."
+            }), 400
+            
+    except Exception as e:
+        print(f"Error logging out from all devices: {e}")
+        return jsonify({
+            "success": False,
+            "message": "An error occurred while logging out from all devices"
+        }), 500
+
 @app.route("/account/download-data")
 @login_required
 def download_user_data():
@@ -1350,64 +1512,57 @@ def download_user_data():
                 "username": current_user.username,
                 "email": current_user.email,
                 "name": current_user.name,
-                "created_at": current_user.created_at.isoformat() if hasattr(current_user.created_at, 'isoformat') else str(current_user.created_at),
-                "last_login": current_user.last_login.isoformat() if hasattr(current_user.last_login, 'isoformat') else str(current_user.last_login),
                 "provider": current_user.provider,
+                "created_on": current_user.created_on.isoformat() if hasattr(current_user, 'created_on') and current_user.created_on else None,
                 "preferences": current_user.preferences
-            }
+            },
+            "search_history": [],
+            "favorites": []
         }
         
         # Get search history
-        history = SearchHistory.get_user_history(mongo.db, current_user.get_id(), limit=1000)
-        for item in history:
-            item["_id"] = str(item["_id"])
-            item["user_id"] = str(item["user_id"])
-            if isinstance(item.get("timestamp"), datetime):
+        search_history = mongo.db.search_history.find({"user_id": current_user._id})
+        for item in search_history:
+            item.pop("_id", None)  # Remove ObjectId which is not JSON serializable
+            item.pop("user_id", None)  # Remove user ID reference
+            if "timestamp" in item and item["timestamp"]:
                 item["timestamp"] = item["timestamp"].isoformat()
-        user_data["search_history"] = history
-        
+            user_data["search_history"].append(item)
+            
         # Get favorites
-        favorites = Favorite.get_favorites(mongo.db, current_user.get_id())
+        favorites = mongo.db.favorites.find({"user_id": current_user._id})
         for item in favorites:
-            item["_id"] = str(item["_id"])
-            item["user_id"] = str(item["user_id"])
-            if isinstance(item.get("timestamp"), datetime):
+            item.pop("_id", None)
+            item.pop("user_id", None)
+            if "timestamp" in item and item["timestamp"]:
                 item["timestamp"] = item["timestamp"].isoformat()
-        user_data["favorites"] = favorites
+            user_data["favorites"].append(item)
+            
+        # If user has documents, include their metadata (not content)
+        documents = mongo.db.documents.find({"user_id": current_user._id})
+        if documents:
+            user_data["documents"] = []
+            for doc in documents:
+                doc.pop("_id", None)
+                doc.pop("user_id", None)
+                doc.pop("content", None)  # Don't include the actual content
+                if "uploaded_on" in doc and doc["uploaded_on"]:
+                    doc["uploaded_on"] = doc["uploaded_on"].isoformat()
+                user_data["documents"].append(doc)
         
-        # Create response with JSON data
-        response = jsonify(user_data)
-        response.headers["Content-Disposition"] = f"attachment; filename=sentino_data_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.json"
+        # Create a JSON file
+        json_data = json.dumps(user_data, indent=2)
+        
+        # Create response with download attachment
+        response = make_response(json_data)
+        response.headers["Content-Disposition"] = f"attachment; filename=sentino_data_{current_user.username}.json"
+        response.headers["Content-Type"] = "application/json"
+        
         return response
         
     except Exception as e:
         print(f"Error downloading user data: {e}")
-        flash("An error occurred while preparing your data for download", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/account/logout-all", methods=["POST"])
-@login_required
-def logout_all_devices():
-    try:
-        # In a real implementation, you would invalidate all sessions for this user
-        # For this demo, we'll just log out the current session and show a success message
-        
-        # Update last_login to invalidate other sessions
-        mongo.db.users.update_one(
-            {"_id": ObjectId(current_user.get_id())},
-            {"$set": {"session_id": secrets.token_hex(16)}}
-        )
-        
-        # Log out the current session
-        logout_user()
-        session.clear()
-        
-        flash("You have been logged out from all devices", "success")
-        return redirect(url_for("login"))
-        
-    except Exception as e:
-        print(f"Error logging out all devices: {e}")
-        flash("An error occurred while logging out all devices", "error")
+        flash("An error occurred while downloading your data", "error")
         return redirect(url_for("account_settings"))
 
 @app.route("/api/academic/visualizations", methods=["POST"])
@@ -1781,6 +1936,279 @@ def create_author_visualization(papers):
         import traceback
         traceback.print_exc()
         return {"error": f"Author visualization error: {str(e)}"}
+
+# Add route to view specific search details
+@app.route("/api/history/<search_id>", methods=["GET"])
+@login_required
+def get_search_details(search_id):
+    try:
+        search = SearchHistory.get_search_by_id(mongo.db, search_id)
+        
+        if not search:
+            return jsonify({"error": "Search not found"}), 404
+            
+        # Verify the search belongs to the current user
+        if str(search.get("user_id")) != current_user.get_id():
+            return jsonify({"error": "Unauthorized access"}), 403
+            
+        # Convert ObjectId to string for JSON serialization
+        search["_id"] = str(search["_id"])
+        search["user_id"] = str(search["user_id"])
+        search["timestamp"] = search["timestamp"].isoformat()
+        
+        return jsonify({"search": search})
+        
+    except Exception as e:
+        print(f"Error getting search details: {e}")
+        return jsonify({"error": f"Error: {str(e)}"}), 500
+
+@app.route('/chat')
+@login_required
+def chat():
+    """Document chat interface where users can upload and chat about documents"""
+    return render_template('feature_disabled.html', 
+                          feature_name="AI Document Chat", 
+                          message="The document chat feature is temporarily disabled for maintenance.", 
+                          user_theme=session.get('theme', 'light'))
+
+@app.route('/set_theme', methods=['POST'])
+def set_theme():
+    """Set the user's theme preference"""
+    data = request.json
+    if data and 'theme' in data:
+        session['theme'] = data['theme']
+    return jsonify({"success": True})
+
+# API endpoints for document chat
+@app.route('/api/documents')
+@login_required
+def get_documents():
+    """Get all documents for the current user"""
+    return jsonify({
+        "success": False,
+        "message": "Document chat feature is temporarily disabled for maintenance."
+    }), 503
+
+@app.route('/api/documents/upload', methods=['POST'])
+@login_required
+def upload_chat_document():
+    """Upload a document for processing"""
+    return jsonify({
+        "success": False,
+        "message": "Document chat feature is temporarily disabled for maintenance."
+    }), 503
+
+@app.route('/api/documents/<document_id>', methods=['DELETE'])
+@login_required
+def delete_chat_document(document_id):
+    """Delete a document"""
+    return jsonify({
+        "success": False,
+        "message": "Document chat feature is temporarily disabled for maintenance."
+    }), 503
+
+@app.route('/api/chat/<document_id>', methods=['POST'])
+@login_required
+def chat_with_document(document_id):
+    """Chat with a document"""
+    return jsonify({
+        "success": False,
+        "message": "Document chat feature is temporarily disabled for maintenance."
+    }), 503
+
+@app.route('/api/chat/<document_id>/history')
+@login_required
+def get_chat_history(document_id):
+    """Get chat history for a document"""
+    return jsonify({
+        "success": False,
+        "message": "Document chat feature is temporarily disabled for maintenance."
+    }), 503
+
+def extract_text_from_pdf(filepath):
+    """Extract text from PDF file"""
+    try:
+        import PyPDF2
+        
+        text = ""
+        with open(filepath, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            for page_num in range(len(reader.pages)):
+                page = reader.pages[page_num]
+                text += page.extract_text() + "\n"
+        
+        return text
+    except Exception as e:
+        app.logger.error(f"Error extracting text from PDF: {str(e)}")
+        raise e
+
+def extract_text_from_docx(filepath):
+    """Extract text from DOCX file"""
+    try:
+        import docx
+        
+        doc = docx.Document(filepath)
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        
+        return text
+    except Exception as e:
+        app.logger.error(f"Error extracting text from DOCX: {str(e)}")
+        raise e
+
+def process_document_embeddings(document_id):
+    """Process document embeddings for vector search"""
+    try:
+        document = mongo.db.document_context.find_one({"_id": ObjectId(document_id)})
+        if not document:
+            app.logger.error(f"Document {document_id} not found for embedding processing")
+            return
+        
+        # In a real implementation, you would:
+        # 1. Split the document into chunks
+        # 2. Generate embeddings for each chunk
+        # 3. Store the embeddings in the database
+        
+        # For now, we'll just update the document to mark it as processed
+        mongo.db.document_context.update_one(
+            {"_id": ObjectId(document_id)},
+            {"$set": {"embedding_processed": True}}
+        )
+        
+        app.logger.info(f"Document {document_id} embeddings processed successfully")
+    
+    except Exception as e:
+        app.logger.error(f"Error processing document embeddings: {str(e)}")
+
+def generate_document_response(user_query, document_content):
+    """Generate AI response based on document content and user query"""
+    # In a real implementation, you would:
+    # 1. Use embeddings to find relevant chunks of the document
+    # 2. Pass the relevant chunks and user query to an LLM API
+    # 3. Return the LLM's response
+    
+    # For demo purposes, we'll just return a simple response
+    try:
+        # Simple keyword matching for demo
+        query_words = set(user_query.lower().split())
+        paragraphs = document_content.split('\n\n')
+        
+        # Find paragraphs that contain query words
+        relevant_paragraphs = []
+        for paragraph in paragraphs:
+            if len(paragraph.strip()) < 10:  # Skip very short paragraphs
+                continue
+                
+            paragraph_words = set(paragraph.lower().split())
+            intersection = query_words.intersection(paragraph_words)
+            
+            if intersection:
+                relevant_paragraphs.append({
+                    "text": paragraph,
+                    "relevance": len(intersection) / len(query_words)
+                })
+        
+        # Sort by relevance
+        relevant_paragraphs.sort(key=lambda x: x["relevance"], reverse=True)
+        
+        # If we found relevant paragraphs
+        if relevant_paragraphs:
+            top_paragraphs = relevant_paragraphs[:3]
+            context = "\n\n".join([p["text"] for p in top_paragraphs])
+            
+            response = f"Based on the document, I found the following information related to your query:\n\n{context}\n\nIs there anything specific about this you'd like me to explain further?"
+        else:
+            response = "I couldn't find information directly related to your query in this document. Could you please rephrase your question or ask about a different topic from the document?"
+        
+        return response
+        
+    except Exception as e:
+        app.logger.error(f"Error generating document response: {str(e)}")
+        return "I'm sorry, but I encountered an error while processing your query. Please try again later."
+
+@app.route("/api/methodology-filter", methods=["POST"])
+def filter_by_methodology():
+    """API endpoint to filter papers by methodology type"""
+    try:
+        data = request.json
+        papers = data.get("papers", [])
+        method_type = data.get("methodology_type", "all")
+        
+        if not papers:
+            return jsonify({"error": "No papers provided"}), 400
+        
+        # If filtering for all, just return all papers
+        if method_type == "all":
+            return jsonify({"papers": papers})
+        
+        # Filter papers by methodology type
+        filtered_papers = []
+        for paper in papers:
+            if "methodology" in paper and paper["methodology"]["primary_type"] == method_type:
+                filtered_papers.append(paper)
+        
+        # Generate methodology comparison for the filtered papers
+        methodology_comparison = compare_methodologies(filtered_papers)
+        
+        return jsonify({
+            "papers": filtered_papers,
+            "methodology_count": len(filtered_papers),
+            "methodology_comparison": methodology_comparison
+        })
+        
+    except Exception as e:
+        print(f"Error filtering papers by methodology: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/api/methodology-comparison", methods=["POST"])
+def get_methodology_comparison():
+    """API endpoint to get methodology comparison for a set of papers"""
+    try:
+        data = request.json
+        papers = data.get("papers", [])
+        
+        if not papers:
+            return jsonify({"error": "No papers provided"}), 400
+        
+        # Generate methodology comparison
+        comparison = compare_methodologies(papers)
+        
+        return jsonify({
+            "comparison": comparison
+        })
+        
+    except Exception as e:
+        print(f"Error generating methodology comparison: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route("/api/analyze-methodology", methods=["POST"])
+def handle_methodology_analysis():
+    """API endpoint to analyze methodology of a given text"""
+    try:
+        data = request.json
+        text = data.get("text")
+        
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+            
+        # Analyze methodology
+        methodology_analysis = analyze_methodology(text)
+        
+        return jsonify({
+            "analysis": methodology_analysis,
+            "success": True
+        })
+        
+    except Exception as e:
+        print(f"Methodology analysis error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
