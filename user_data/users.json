@@ -1,0 +1,22 @@
+{
+  "testuser": {
+    "user_id": "JtbFQgL3XGogMQ6odbQl5g",
+    "username": "testuser",
+    "email": "test@example.com",
+    "full_name": "Test User",
+    "password_hash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
+    "created_at": "2025-09-02T16:20:14.245630",
+    "last_login": null,
+    "research_profile": {
+      "interests": [],
+      "expertise_areas": [],
+      "institution": "",
+      "research_papers": []
+    },
+    "preferences": {
+      "default_citation_format": "apa",
+      "default_max_results": 20,
+      "email_notifications": true
+    }
+  }
+}

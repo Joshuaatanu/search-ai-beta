@@ -2309,3 +2309,310 @@ pre code {
         opacity: 0.7;
     }
 }
+
+/* Sci-Hub Integration Styles */
+.scihub-indicator {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    float: right;
+}
+
+.scihub-indicator.available {
+    background-color: rgba(39, 174, 96, 0.2);
+    color: #27ae60;
+    border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.scihub-indicator.unavailable {
+    background-color: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.scihub-download-btn,
+.scihub-search-btn {
+    background: linear-gradient(135deg, #27ae60, #2ecc71);
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    margin-right: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.scihub-search-btn {
+    background: linear-gradient(135deg, #3498db, #5dade2);
+}
+
+.scihub-download-btn:hover {
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+}
+
+.scihub-search-btn:hover {
+    background: linear-gradient(135deg, #5dade2, #3498db);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.scihub-modal {
+    max-width: 500px;
+    width: 90%;
+}
+
+.scihub-modal h3 {
+    color: var(--accent-color);
+    margin-bottom: 20px;
+    text-align: center;
+    font-size: 1.4rem;
+}
+
+.scihub-paper-info {
+    background: rgba(var(--text-color-rgb), 0.05);
+    padding: 16px;
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+}
+
+.scihub-paper-info h4 {
+    margin: 0 0 12px 0;
+    color: var(--text-color);
+    line-height: 1.4;
+}
+
+.scihub-paper-info p {
+    margin: 8px 0;
+    color: var(--secondary-text);
+    font-size: 0.9rem;
+}
+
+.scihub-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.scihub-view-btn {
+    background: linear-gradient(135deg, #9b59b6, #8e44ad);
+    color: white;
+    text-decoration: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.scihub-view-btn:hover {
+    background: linear-gradient(135deg, #8e44ad, #9b59b6);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(155, 89, 182, 0.3);
+    text-decoration: none;
+    color: white;
+}
+
+.scihub-disclaimer {
+    background: rgba(241, 196, 15, 0.1);
+    border: 1px solid rgba(241, 196, 15, 0.3);
+    border-radius: var(--radius);
+    padding: 12px;
+    text-align: center;
+}
+
+.scihub-disclaimer small {
+    color: #f1c40f;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+/* Sci-Hub Statistics Display */
+.scihub-stats {
+    background: rgba(var(--text-color-rgb), 0.05);
+    border: 1px solid rgba(var(--text-color-rgb), 0.1);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 16px 0;
+}
+
+.scihub-stats h4 {
+    margin: 0 0 12px 0;
+    color: var(--accent-color);
+    font-size: 1.1rem;
+}
+
+.scihub-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.scihub-stat-item {
+    text-align: center;
+    padding: 8px;
+    background: rgba(var(--text-color-rgb), 0.03);
+    border-radius: 4px;
+}
+
+.scihub-stat-value {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--accent-color);
+}
+
+.scihub-stat-label {
+    font-size: 0.8rem;
+    color: var(--secondary-text);
+    margin-top: 4px;
+}
+
+/* Paper card enhancements for Sci-Hub */
+.paper-card {
+    position: relative;
+    overflow: visible;
+}
+
+.paper-card .scihub-indicator {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    float: none;
+    margin-bottom: 0;
+}
+
+.paper-card .paper-methodology-badge {
+    margin-right: 120px; /* Make room for Sci-Hub indicator */
+}
+
+/* Toast notification enhancements */
+.toast {
+    font-family: inherit;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile responsiveness for Sci-Hub elements */
+@media (max-width: 768px) {
+    .scihub-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .scihub-download-btn,
+    .scihub-search-btn,
+    .scihub-view-btn {
+        text-align: center;
+        justify-content: center;
+    }
+    
+    .scihub-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .paper-card .paper-methodology-badge {
+        margin-right: 100px;
+    }
+    
+    .scihub-indicator {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+    }
+}
+
+/* Theme-specific adjustments for Sci-Hub elements */
+[data-theme="amber"] .scihub-indicator.available {
+    background-color: rgba(255, 176, 0, 0.2);
+    color: var(--retro-accent);
+    border-color: rgba(255, 176, 0, 0.3);
+}
+
+[data-theme="blue"] .scihub-indicator.available {
+    background-color: rgba(122, 162, 247, 0.2);
+    color: var(--modern-accent);
+    border-color: rgba(122, 162, 247, 0.3);
+}
+
+/* Sci-Hub Toggle Styles */
+.scihub-toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-left: 20px;
+    padding: 8px 12px;
+    background: rgba(var(--text-color-rgb), 0.05);
+    border-radius: var(--radius);
+    border: 1px solid rgba(var(--text-color-rgb), 0.1);
+}
+
+.scihub-toggle input[type="checkbox"] {
+    margin-right: 8px;
+    transform: scale(1.2);
+    accent-color: var(--accent-color);
+}
+
+.scihub-label {
+    display: flex;
+    align-items: center;
+    font-weight: 500;
+    color: var(--text-color);
+    cursor: pointer;
+    margin-bottom: 4px;
+}
+
+.scihub-hint {
+    color: var(--secondary-text);
+    font-size: 0.75rem;
+    margin-left: 24px;
+    opacity: 0.8;
+}
+
+.paper-options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.paper-options label {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.paper-options select {
+    margin-top: 4px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(var(--text-color-rgb), 0.2);
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .paper-options {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .scihub-toggle {
+        margin-left: 0;
+        margin-top: 12px;
+    }
+}

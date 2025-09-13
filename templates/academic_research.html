@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentino AI - Academic Research Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-graduation-cap"></i>
+                    <h1>Sentino AI</h1>
+                    <span class="subtitle">Academic Research Platform</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-secondary" onclick="showTrendingTopics()">
+                        <i class="fas fa-chart-line"></i> Trending
+                    </button>
+                    <button class="btn-secondary" onclick="showSciHubStatus()">
+                        <i class="fas fa-server"></i> Sci-Hub Status
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Search Section -->
+            <section class="search-section">
+                <div class="search-container">
+                    <h2>Search Academic Papers</h2>
+                    <p class="search-description">
+                        Search arXiv papers with AI-powered analysis and Sci-Hub integration for full-text access
+                    </p>
+                    
+                    <form id="academicSearchForm" class="search-form">
+                        <div class="search-input-container">
+                            <input 
+                                type="text" 
+                                id="searchQuery" 
+                                placeholder="Enter your research query..." 
+                                required
+                                class="search-input"
+                            >
+                            <button type="submit" class="search-btn">
+                                <i class="fas fa-search"></i>
+                                Search
+                            </button>
+                        </div>
+                        
+                        <div class="search-options">
+                            <div class="option-group">
+                                <label for="maxResults">Results:</label>
+                                <select id="maxResults" name="maxResults">
+                                    <option value="10">10</option>
+                                    <option value="20" selected>20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
+                            
+                            <div class="option-group">
+                                <label for="sortBy">Sort by:</label>
+                                <select id="sortBy" name="sortBy">
+                                    <option value="relevance" selected>Relevance</option>
+                                    <option value="date">Date (newest)</option>
+                                    <option value="updated">Last updated</option>
+                                </select>
+                            </div>
+                            
+                            <div class="option-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="includeScihub" checked>
+                                    <span class="checkmark"></span>
+                                    Include Sci-Hub access
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <!-- AI Analysis Panel -->
+                <div class="analysis-panel" id="analysisPanel">
+                    <h3><i class="fas fa-brain"></i> AI Analysis</h3>
+                    <div class="analysis-content" id="analysisContent">
+                        <div class="loading">Analyzing papers...</div>
+                    </div>
+                </div>
+
+                <!-- Sci-Hub Stats -->
+                <div class="stats-panel" id="statsPanel">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Papers:</span>
+                        <span class="stat-value" id="totalPapers">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Available on Sci-Hub:</span>
+                        <span class="stat-value" id="scihubAvailable">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Availability Rate:</span>
+                        <span class="stat-value" id="availabilityRate">0%</span>
+                    </div>
+                </div>
+
+                <!-- Advanced Analysis Tools -->
+                <div class="analysis-tools" id="analysisTools" style="display: none;">
+                    <h3><i class="fas fa-tools"></i> Advanced Analysis Tools</h3>
+                    <div class="tool-buttons">
+                        <button class="btn-primary" onclick="generateLiteratureReview()">
+                            <i class="fas fa-book"></i> Generate Literature Review
+                        </button>
+                        <button class="btn-secondary" onclick="showMethodologyAnalysis()">
+                            <i class="fas fa-microscope"></i> Methodology Analysis
+                        </button>
+                        <button class="btn-outline" onclick="showResearchFramework()">
+                            <i class="fas fa-project-diagram"></i> Research Framework
+                        </button>
+                        <button class="btn-primary" onclick="showDraftGenerator()" style="background: linear-gradient(135deg, #8B5CF6, #A855F7);">
+                            <i class="fas fa-file-alt"></i> Generate Academic Draft
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Papers List -->
+                <div class="papers-container" id="papersContainer">
+                    <h3><i class="fas fa-file-alt"></i> Research Papers</h3>
+                    <div class="papers-list" id="papersList">
+                        <!-- Papers will be loaded here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Paper Analysis Modal -->
+    <div class="modal" id="paperAnalysisModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-microscope"></i> Paper Analysis</h3>
+                <button class="modal-close" onclick="closeModal('paperAnalysisModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="paper-title" id="modalPaperTitle"></div>
+                <div class="analysis-content" id="modalAnalysisContent">
+                    <div class="loading">Analyzing paper...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Research Suggestions Modal -->
+    <div class="modal" id="suggestionsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-lightbulb"></i> Research Suggestions</h3>
+                <button class="modal-close" onclick="closeModal('suggestionsModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="suggestions-content" id="suggestionsContent">
+                    <div class="loading">Generating suggestions...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trending Topics Modal -->
+    <div class="modal" id="trendingModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-chart-line"></i> Trending Research Topics</h3>
+                <button class="modal-close" onclick="closeModal('trendingModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="trending-content" id="trendingContent">
+                    <div class="loading">Loading trending topics...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sci-Hub Status Modal -->
+    <div class="modal" id="scihubStatusModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-server"></i> Sci-Hub Mirror Status</h3>
+                <button class="modal-close" onclick="closeModal('scihubStatusModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="status-content" id="statusContent">
+                    <div class="loading">Checking mirror status...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Literature Review Modal -->
+    <div class="modal" id="literatureReviewModal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-book"></i> Literature Review</h3>
+                <div class="modal-controls">
+                    <select id="reviewType" onchange="updateReviewType()">
+                        <option value="systematic">Systematic Review</option>
+                        <option value="narrative">Narrative Review</option>
+                        <option value="scoping">Scoping Review</option>
+                    </select>
+                    <select id="citationFormat" onchange="updateCitationFormat()">
+                        <option value="apa">APA Style</option>
+                        <option value="mla">MLA Style</option>
+                        <option value="chicago">Chicago Style</option>
+                        <option value="ieee">IEEE Style</option>
+                        <option value="harvard">Harvard Style</option>
+                    </select>
+                    <button class="modal-close" onclick="closeModal('literatureReviewModal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="review-content" id="reviewContent">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Generating comprehensive literature review...</div>
+                        <div class="loading-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-primary" onclick="exportReview()">
+                        <i class="fas fa-download"></i> Export as Word
+                    </button>
+                    <button class="btn-secondary" onclick="copyReview()">
+                        <i class="fas fa-copy"></i> Copy to Clipboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Methodology Analysis Modal -->
+    <div class="modal" id="methodologyModal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-microscope"></i> Methodology Analysis</h3>
+                <button class="modal-close" onclick="closeModal('methodologyModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="methodology-form">
+                    <div class="form-group">
+                        <label for="methodologyResearchQuestion">Research Question:</label>
+                        <textarea id="methodologyResearchQuestion" placeholder="Enter your specific research question..." rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="researchType">Research Type:</label>
+                        <select id="researchType">
+                            <option value="empirical">Empirical Research</option>
+                            <option value="theoretical">Theoretical Research</option>
+                            <option value="applied">Applied Research</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="methodologyCitationFormat">Citation Format:</label>
+                        <select id="methodologyCitationFormat">
+                            <option value="apa">APA Style</option>
+                            <option value="mla">MLA Style</option>
+                            <option value="chicago">Chicago Style</option>
+                            <option value="ieee">IEEE Style</option>
+                            <option value="harvard">Harvard Style</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" onclick="generateMethodologyAnalysis()">
+                        <i class="fas fa-cogs"></i> Generate Analysis
+                    </button>
+                </div>
+                <div class="methodology-content" id="methodologyContent" style="display: none;">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Analyzing methodology approaches...</div>
+                        <div class="loading-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions" id="methodologyActions" style="display: none;">
+                    <button class="btn-primary" onclick="exportMethodology()">
+                        <i class="fas fa-download"></i> Export Analysis
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Research Framework Modal -->
+    <div class="modal" id="researchFrameworkModal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-project-diagram"></i> Research Framework</h3>
+                <button class="modal-close" onclick="closeModal('researchFrameworkModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="framework-content" id="frameworkContent">
+                    <div class="loading">Generating research framework...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Academic Draft Generator Modal -->
+    <div class="modal" id="draftGeneratorModal">
+        <div class="modal-content extra-large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-file-alt"></i> Generate Academic Draft</h3>
+                <button class="modal-close" onclick="closeModal('draftGeneratorModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="draft-form" id="draftForm">
+                    <div class="form-section">
+                        <h4><i class="fas fa-info-circle"></i> Research Information</h4>
+                        <div class="form-group">
+                            <label for="researchTitle">Research Title *</label>
+                            <input type="text" id="researchTitle" class="form-input" placeholder="Enter your research title" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="researchQuestion">Research Question *</label>
+                            <textarea id="researchQuestion" class="form-textarea" placeholder="What is your main research question?" rows="3" required></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="researchField">Research Field</label>
+                                <input type="text" id="researchField" class="form-input" placeholder="e.g., Computer Science, Psychology">
+                            </div>
+                            <div class="form-group">
+                                <label for="researchType">Research Type</label>
+                                <select id="researchType" class="form-select">
+                                    <option value="empirical">Empirical Research</option>
+                                    <option value="theoretical">Theoretical Research</option>
+                                    <option value="applied">Applied Research</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h4><i class="fas fa-cogs"></i> Draft Configuration</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="draftCitationFormat">Citation Format</label>
+                                <select id="draftCitationFormat" class="form-select">
+                                    <option value="apa">APA Style</option>
+                                    <option value="mla">MLA Style</option>
+                                    <option value="chicago">Chicago Style</option>
+                                    <option value="ieee">IEEE Style</option>
+                                    <option value="harvard">Harvard Style</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Sections to Include</label>
+                            <div class="checkbox-group">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="includeIntroduction" checked>
+                                    <span class="checkmark"></span>
+                                    Introduction
+                                </label>
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="includeLiteratureReview" checked>
+                                    <span class="checkmark"></span>
+                                    Literature Review
+                                </label>
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="includeMethodology" checked>
+                                    <span class="checkmark"></span>
+                                    Methodology
+                                </label>
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="includeConclusion" checked>
+                                    <span class="checkmark"></span>
+                                    Conclusion
+                                </label>
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="includeFutureWorks" checked>
+                                    <span class="checkmark"></span>
+                                    Future Works
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn-primary" onclick="generateAcademicDraft()">
+                            <i class="fas fa-magic"></i> Generate Draft
+                        </button>
+                        <button class="btn-secondary" onclick="closeModal('draftGeneratorModal')">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <div class="draft-result" id="draftResult" style="display: none;">
+                    <div class="draft-header">
+                        <h4><i class="fas fa-file-text"></i> Generated Academic Draft</h4>
+                        <div class="draft-actions">
+                            <button class="btn-outline" onclick="copyDraft()">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                            <button class="btn-outline" onclick="exportDraft()">
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                            <button class="btn-secondary" onclick="showDraftForm()">
+                                <i class="fas fa-edit"></i> Edit Parameters
+                            </button>
+                        </div>
+                    </div>
+                    <div class="draft-content markdown-content" id="draftContent">
+                        <!-- Generated draft will appear here -->
+                    </div>
+                </div>
+
+                <div class="draft-loading" id="draftLoading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">Generating your academic draft...</div>
+                    <div class="loading-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <p class="loading-subtitle">This may take a few moments as we create comprehensive sections</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>Searching academic papers...</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/academic.js') }}"></script>
+</body>
+</html>

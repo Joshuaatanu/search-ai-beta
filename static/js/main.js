@@ -138,7 +138,15 @@ document.addEventListener("DOMContentLoaded", function () {
                 const query = document.getElementById('academicInput').value.trim();
                 if (!query) return;
                 const maxPapers = document.getElementById('maxPapers').value;
+                const enableSciHub = document.getElementById('enableSciHub')?.checked ?? true;
+                
+                if (enableSciHub) {
+                    // Use Sci-Hub enhanced search
+                    await handleAcademicSearchWithSciHub(query, maxPapers, academicResults);
+                } else {
+                    // Use regular academic search
                 await handleAcademicSearch(query, maxPapers, academicResults);
+                }
             });
         }
         
@@ -257,6 +265,42 @@ document.addEventListener("DOMContentLoaded", function () {
             
         } catch (err) {
             console.error("Error processing academic request:", err);
+            showError(resultsContainer, err.message, true);
+        }
+    }
+    
+    // Sci-Hub focused academic search function
+    async function handleAcademicSearchWithSciHub(query, maxPapers, resultsContainer) {
+        showLoading(resultsContainer, 'Searching Sci-Hub directly for papers...');
+        
+        try {
+            const response = await fetch('/api/scihub-search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query: query,
+                    max_results: maxPapers
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to process research query');
+            }
+            
+            const data = await response.json();
+            renderAcademicResults(data, resultsContainer, query);
+            
+            // Show Sci-Hub statistics
+            if (data.scihub_stats) {
+                const stats = data.scihub_stats;
+                showToast(`Sci-Hub: ${stats.available_on_scihub}/${stats.total_papers} papers available (${stats.availability_rate.toFixed(1)}%)`, 'info');
+            }
+            
+        } catch (err) {
+            console.error("Error processing academic request with Sci-Hub:", err);
             showError(resultsContainer, err.message, true);
         }
     }
@@ -437,9 +481,21 @@ document.addEventListener("DOMContentLoaded", function () {
             ? `<div class="methodology-highlight">${methodologySentences[0]}</div>` 
             : '';
         
+        // Sci-Hub availability indicator and button
+        const scihubAvailable = paper.scihub_available || false;
+        const scihubIndicator = scihubAvailable 
+            ? '<div class="scihub-indicator available" title="Available on Sci-Hub">🔓 Sci-Hub Available</div>'
+            : '<div class="scihub-indicator unavailable" title="Not found on Sci-Hub">🔒 Sci-Hub Unavailable</div>';
+        
+        // Sci-Hub download button
+        const scihubButton = scihubAvailable 
+            ? `<button class="scihub-download-btn" onclick="downloadFromSciHub('${escapeHtml(paper.scihub_pdf_url || '')}', '${escapeHtml(paper.title.replace(/'/g, "\\'"))}.pdf')" title="Download PDF from Sci-Hub">📥 Download PDF</button>`
+            : `<button class="scihub-search-btn" onclick="searchSciHub('${escapeHtml(paper.doi || paper.url || paper.title)}')" title="Search for this paper on Sci-Hub">🔍 Find on Sci-Hub</button>`;
+        
         return `
             <div class="paper-card methodology-${methodologyInfo.primary_type}">
                 <div class="paper-methodology-badge">${methodologyType}</div>
+                ${scihubIndicator}
                 <h4 class="paper-title">${escapeHtml(paper.title)}</h4>
                 <div class="paper-authors">${escapeHtml(paper.authors)}</div>
                 <div class="paper-date">Published: ${escapeHtml(paper.published || 'Unknown')}</div>
@@ -447,6 +503,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 ${methodologyHighlight}
                 <div class="paper-links">
                     <a href="${paper.pdf_url}" target="_blank" class="paper-link">View PDF</a>
+                    ${scihubButton}
                     <button class="paper-methodology-btn" onclick="showMethodologyDetails('${escapeHtml(paper.title.replace(/'/g, "\\'"))}')">Methodology Details</button>
                 </div>
             </div>
@@ -931,4 +988,250 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Sci-Hub Integration Functions
+    window.downloadFromSciHub = async function(pdfUrl, filename) {
+        if (!pdfUrl) {
+            alert('No Sci-Hub PDF URL available');
+            return;
+        }
+
+        try {
+            showToast('Downloading paper from Sci-Hub...', 'info');
+            
+            const response = await fetch('/api/scihub/download-paper', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    pdf_url: pdfUrl,
+                    filename: filename
+                })
+            });
+
+            if (response.ok) {
+                // Create blob from response
+                const blob = await response.blob();
+                
+                // Create download link
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.style.display = 'none';
+                link.href = downloadUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                showToast('Paper downloaded successfully!', 'success');
+            } else {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Download failed');
+            }
+        } catch (error) {
+            console.error('Error downloading from Sci-Hub:', error);
+            showToast(`Download failed: ${error.message}`, 'error');
+        }
+    };
+
+    window.searchSciHub = async function(identifier) {
+        if (!identifier) {
+            alert('No identifier available for Sci-Hub search');
+            return;
+        }
+
+        try {
+            showToast('Searching Sci-Hub...', 'info');
+            
+            // Determine search type and endpoint based on identifier
+            let endpoint;
+            let payload;
+            
+            if (identifier.includes('10.') && identifier.includes('/')) {
+                // Looks like a DOI
+                endpoint = '/api/scihub/paper-by-doi';
+                payload = { doi: identifier };
+            } else if (identifier.startsWith('http')) {
+                // Looks like a URL
+                endpoint = '/api/scihub/paper-by-url';
+                payload = { url: identifier };
+            } else {
+                // Treat as title
+                endpoint = '/api/scihub/paper-by-title';
+                payload = { title: identifier };
+            }
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.paper) {
+                showToast('Paper found on Sci-Hub!', 'success');
+                
+                // Show Sci-Hub result modal
+                showSciHubModal(data.paper);
+            } else {
+                showToast('Paper not found on Sci-Hub', 'warning');
+            }
+        } catch (error) {
+            console.error('Error searching Sci-Hub:', error);
+            showToast(`Search failed: ${error.message}`, 'error');
+        }
+    };
+
+    window.enhancePapersWithSciHub = async function(papers) {
+        if (!papers || papers.length === 0) {
+            return papers;
+        }
+
+        try {
+            showToast('Checking Sci-Hub availability...', 'info');
+            
+            const response = await fetch('/api/scihub/enhance-papers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ papers: papers })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(`Enhanced ${data.papers.length} papers with Sci-Hub data`, 'success');
+                
+                // Show availability stats
+                if (data.stats) {
+                    const availableCount = data.stats.available_on_scihub;
+                    const totalCount = data.stats.total_papers;
+                    const rate = data.stats.availability_rate.toFixed(1);
+                    
+                    showToast(`Sci-Hub Availability: ${availableCount}/${totalCount} papers (${rate}%)`, 'info');
+                }
+                
+                return data.papers;
+            } else {
+                throw new Error('Failed to enhance papers with Sci-Hub data');
+            }
+        } catch (error) {
+            console.error('Error enhancing papers with Sci-Hub:', error);
+            showToast(`Enhancement failed: ${error.message}`, 'error');
+            return papers; // Return original papers if enhancement fails
+        }
+    };
+
+    function showSciHubModal(paper) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.id = 'scihubModal';
+        
+        modal.innerHTML = `
+            <div class="modal-content scihub-modal">
+                <span class="modal-close">&times;</span>
+                <h3>📚 Paper Found on Sci-Hub</h3>
+                
+                <div class="scihub-paper-info">
+                    <h4>${escapeHtml(paper.title || 'Unknown Title')}</h4>
+                    ${paper.authors ? `<p><strong>Authors:</strong> ${escapeHtml(paper.authors)}</p>` : ''}
+                    ${paper.doi ? `<p><strong>DOI:</strong> ${escapeHtml(paper.doi)}</p>` : ''}
+                </div>
+                
+                <div class="scihub-actions">
+                    <button class="scihub-download-btn" onclick="downloadFromSciHub('${escapeHtml(paper.pdf_url)}', '${escapeHtml(paper.title || 'paper')}.pdf')">
+                        📥 Download PDF
+                    </button>
+                    <a href="${paper.scihub_url}" target="_blank" class="scihub-view-btn">
+                        🔗 View on Sci-Hub
+                    </a>
+                </div>
+                
+                <div class="scihub-disclaimer">
+                    <small>⚠️ Please respect copyright laws and use academic papers responsibly for research and educational purposes.</small>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Add close functionality
+        const closeBtn = modal.querySelector('.modal-close');
+        closeBtn.addEventListener('click', () => {
+            document.body.removeChild(modal);
+        });
+        
+        // Close on outside click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+            }
+        });
+        
+        // Show modal
+        modal.style.display = 'block';
+    }
+
+    function showToast(message, type = 'info') {
+        // Remove existing toasts
+        const existingToasts = document.querySelectorAll('.toast');
+        existingToasts.forEach(toast => toast.remove());
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        
+        // Add toast styles if not already added
+        if (!document.querySelector('#toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'toast-styles';
+            style.textContent = `
+                .toast {
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    color: white;
+                    font-weight: 500;
+                    z-index: 10000;
+                    max-width: 400px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                    animation: slideInRight 0.3s ease-out;
+                }
+                .toast-info { background-color: #3498db; }
+                .toast-success { background-color: #27ae60; }
+                .toast-warning { background-color: #f39c12; }
+                .toast-error { background-color: #e74c3c; }
+                
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(toast);
+        
+        // Auto remove after 4 seconds
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.animation = 'slideInRight 0.3s ease-out reverse';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.remove();
+                    }
+                }, 300);
+            }
+        }, 4000);
+    }
 });
+
+

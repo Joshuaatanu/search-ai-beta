@@ -1,2215 +1,1880 @@
-# app.py
+#!/usr/bin/env python3
+"""
+Sentino AI - Academic Research Platform with Sci-Hub Integration
+Focused on academic paper search, analysis, and access through Sci-Hub
+"""
+
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, make_response
 from flask_cors import CORS
-import requests
-# from google import genai
-from duckduckgo_search import DDGS
 import os
 from dotenv import load_dotenv
-# Import the Gemini client from Google's generative AI library
 import google.generativeai as genai
 import arxiv
 import re
-from flask_pymongo import PyMongo
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from bson.objectid import ObjectId
-from pymongo.mongo_client import MongoClient
-from pymongo.server_api import ServerApi
-import json
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash, check_password_hash
-import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import threading
-import io
-from werkzeug.utils import secure_filename
+import requests
+import json
+import logging
+from typing import Dict, List, Optional
 import time
-from PIL import Image
-from utils.avatar import save_profile_picture, generate_random_avatar, get_avatar_url
-from utils.activity import track_login_activity, get_login_history
 
-# Visualization libraries
-import pandas as pd
-import networkx as nx
-from scholarly import scholarly
-from urllib.parse import urlparse, parse_qs
-import plotly
-import plotly.graph_objects as go
-import plotly.express as px
-import random  # Added for random simulation in visualizations
-
-# OAuth Libraries
-from authlib.integrations.flask_client import OAuth
-import google_auth_oauthlib.flow
-import google.oauth2.credentials
-import google.oauth2.id_token
-import google.auth.transport.requests
-
-# Import models
-from models import User, SearchHistory, Favorite, Recommendation
-
-# Import methodology analyzer
-from methodology_analyzer import analyze_paper_methodology, analyze_papers_methodologies, compare_methodologies, analyze_methodology, MethodologyAnalyzer
+# Import our Sci-Hub integration
+from utils.scihub_api import scihub_api
 
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.getenv("SECRET_KEY", "sentino-academic-research-key")
 
-# Configure Flask app
-app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(16))
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
-app.config["SESSION_TYPE"] = "filesystem"
-app.config["SESSION_PERMANENT"] = True
+# Configuration
+PAPERS_PER_PAGE = 20
+MAX_SEARCH_RESULTS = 100
 
-# Get MongoDB URI from environment or use default
-mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/sentino")
-print(f"Connecting to MongoDB: {mongodb_uri}")
-
-# Set up MongoDB
-app.config["MONGO_URI"] = mongodb_uri
-mongo = PyMongo(app)
-
-# Verify the connection is working and initialize collections
-with app.app_context():
-    try:
-        # Check if we can list collections
-        collections = mongo.db.list_collection_names()
-        print(f"Connected to MongoDB. Existing collections: {collections}")
-        
-        # Ensure required collections exist
-        required_collections = ["users", "search_history", "favorites", "password_resets"]
-        for collection in required_collections:
-            if collection not in collections:
-                print(f"Creating collection: {collection}")
-                mongo.db.create_collection(collection)
-        
-        print("MongoDB collections initialized successfully")
-    except Exception as e:
-        print(f"MongoDB connection or initialization failed: {e}")
-        print("WARNING: Application may not function correctly without MongoDB!")
-
-# Set up Flask-Login
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = "login"
-
-# Set up OAuth
-oauth = OAuth(app)
-
-# GitHub OAuth
-github_client_id = os.getenv("GITHUB_CLIENT_ID")
-github_client_secret = os.getenv("GITHUB_CLIENT_SECRET")
-if github_client_id and github_client_secret:
-    oauth.register(
-        name="github",
-        client_id=github_client_id,
-        client_secret=github_client_secret,
-        access_token_url="https://github.com/login/oauth/access_token",
-        access_token_params=None,
-        authorize_url="https://github.com/login/oauth/authorize",
-        authorize_params=None,
-        api_base_url="https://api.github.com/",
-        client_kwargs={"scope": "user:email"},
-    )
-
-# Email configuration
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() in ('true', 'yes', '1')
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
-
-# Password reset token expiration (in seconds)
-PASSWORD_RESET_EXPIRATION = 3600  # 1 hour
-
-# Function to send email
-def send_email(to, subject, body_html):
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = app.config['MAIL_DEFAULT_SENDER']
-    msg['To'] = to
-    
-    html_part = MIMEText(body_html, 'html')
-    msg.attach(html_part)
+def query_gemini(prompt, context=""):
+    """Enhanced Gemini query function for academic analysis with fallback"""
+    # Check if API key is available
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key == "your_gemini_api_key_here":
+        logger.warning("Gemini API key not configured, using fallback analysis")
+        return generate_fallback_analysis(prompt, context)
     
     try:
-        server = smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT'])
-        server.ehlo()
-        server.starttls()
-        server.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
-        server.sendmail(app.config['MAIL_DEFAULT_SENDER'], to, msg.as_string())
-        server.close()
-        return True
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Enhanced prompt for academic research
+        academic_prompt = f"""
+You are an expert academic research assistant. Analyze the following query and provide comprehensive insights.
+
+Query: {prompt}
+
+Context: {context}
+
+Please provide:
+1. Key research themes and concepts
+2. Relevant academic fields and disciplines
+3. Suggested search terms for finding related papers
+4. Important considerations for this research topic
+
+Respond in a clear, academic tone suitable for researchers.
+"""
+        
+        response = model.generate_content(academic_prompt)
+        if response and response.text:
+            return response.text
+        else:
+            logger.warning("Empty response from Gemini API, using fallback")
+            return generate_fallback_analysis(prompt, context)
+        
     except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+        logger.error(f"Gemini API error: {e}")
+        logger.info("Using fallback analysis due to API error")
+        return generate_fallback_analysis(prompt, context)
 
-@login_manager.user_loader
-def load_user(user_id):
-    try:
-        return User.get_by_id(mongo.db, user_id)
-    except Exception as e:
-        print(f"Error loading user: {e}")
-        return None
+def generate_fallback_analysis(prompt, context=""):
+    """Generate basic analysis when AI is unavailable"""
+    return f"""
+**Analysis for: {prompt}**
 
-# Verify MongoDB is connected before handling requests
-@app.before_request
-def check_mongodb():
-    if request.endpoint in ['login', 'static', 'github_callback', 'google_callback', 'apple_callback']:
-        try:
-            # Quick connectivity check
-            mongo.db.command('ping')
-        except Exception as e:
-            print(f"MongoDB not available: {e}")
-            if not request.path.startswith('/static/'):
-                flash("Database connection issue. Some features may not work properly.", "error")
+**Note: This is a basic analysis generated without AI assistance. For comprehensive AI-powered insights, please configure your Gemini API key.**
 
-def query_duckduckgo_text(query):
-    """
-    Uses DuckDuckGo's text search via the duckduckgo_search library to get search results.
-    """
-    try:
-        ddgs = DDGS()
-        results = ddgs.text(keywords=query, region="wt-wt", safesearch="moderate", max_results=10) # Increased from 3 to 10 for more comprehensive results
-        return results
-    except Exception as e:
-        print("DuckDuckGo text search error:", e)
-        return []
+**Key Research Areas:**
+Based on your query, this research appears to relate to multiple academic domains. Consider exploring:
+- Primary research methodologies in this field
+- Theoretical frameworks commonly applied
+- Recent developments and emerging trends
+- Cross-disciplinary applications
 
-def generate_search_context(search_results):
-    """
-    Generates a combined text string from search results to provide context to Gemini.
-    """
-    combined_text = ""
-    for result in search_results:
-        title = result.get("title", "No title")
-        snippet = result.get("body", "No snippet available")
-        url = result.get("href", "")
-        combined_text += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
-    return combined_text
+**Research Approach:**
+1. **Literature Search Strategy**: Use multiple academic databases (arXiv, PubMed, IEEE Xplore, Google Scholar)
+2. **Methodology Considerations**: Consider both quantitative and qualitative approaches
+3. **Theoretical Framework**: Identify established theories and emerging paradigms
+4. **Current Gaps**: Look for unexplored areas and methodological innovations
 
-# Configure upload folder
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+**Next Steps:**
+- Conduct systematic literature search
+- Identify key researchers and institutions
+- Analyze methodological approaches in recent papers
+- Consider interdisciplinary perspectives
 
-# Ensure upload directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+**Limitations:**
+This analysis is generated without AI assistance. For comprehensive insights including detailed methodology recommendations, literature synthesis, and research planning, please configure the Gemini API key in your .env file.
+"""
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def extract_text_from_file(file):
-    """Extract text from uploaded files (PDF, DOCX, TXT)"""
-    filename = secure_filename(file.filename)
-    file_ext = filename.rsplit('.', 1)[1].lower()
+def format_citation(paper, citation_format="apa", reference_number=None):
+    """Format a paper citation in the specified format"""
+    title = paper.get('title', 'Unknown Title')
+    authors = paper.get('authors', 'Unknown Author')
+    year = paper.get('published_year', 'n.d.')
+    url = paper.get('url', '')
+    doi = paper.get('doi', '')
+    categories = paper.get('categories', [])
     
-    try:
-        # Process based on file type
-        if file_ext == 'pdf':
-            file_stream = io.BytesIO(file.read())
-            pdf_reader = PyPDF2.PdfReader(file_stream)
-            text = ""
-            for page_num in range(len(pdf_reader.pages)):
-                text += pdf_reader.pages[page_num].extract_text() + "\n"
-            return text
-            
-        elif file_ext == 'docx':
-            file_stream = io.BytesIO(file.read())
-            doc = docx.Document(file_stream)
-            text = ""
-            for para in doc.paragraphs:
-                text += para.text + "\n"
-            return text
-            
-        elif file_ext == 'txt':
-            return file.read().decode('utf-8')
-            
-        return "Unsupported file format"
-        
-    except Exception as e:
-        print(f"Error extracting text from file: {e}")
-        return f"Error processing file: {str(e)}"
-
-@app.route("/api/upload", methods=["POST"])
-@login_required
-def upload_document():
-    """Handle document uploads and extract text"""
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
-        
-    file = request.files['file']
+    # Clean up authors - take first few if too many
+    if len(authors) > 100:
+        authors_list = authors.split(', ')
+        if len(authors_list) > 3:
+            authors = f"{authors_list[0]}, {authors_list[1]}, et al."
     
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
-        
-    if not allowed_file(file.filename):
-        return jsonify({"error": "File type not allowed"}), 400
+    # Format based on citation style
+    if citation_format.lower() == "apa":
+        citation = f"{authors} ({year}). {title}. arXiv preprint."
+        if doi:
+            citation += f" https://doi.org/{doi}"
+        elif url:
+            citation += f" Retrieved from {url}"
     
-    try:
-        # Extract text from the file
-        extracted_text = extract_text_from_file(file)
-        
-        if not extracted_text or extracted_text.strip() == "":
-            return jsonify({"error": "Could not extract text from file"}), 400
-            
-        # Get user ID and the upload context
-        user_id = current_user.get_id()
-        context_id = request.form.get('contextId', secrets.token_hex(8))
-        
-        # Save text to MongoDB for chat context
-        document_data = {
-            'user_id': ObjectId(user_id),
-            'filename': secure_filename(file.filename),
-            'context_id': context_id, 
-            'uploaded_at': datetime.utcnow(),
-            'text_content': extracted_text,
-            'file_type': file.filename.rsplit('.', 1)[1].lower()
-        }
-        
-        mongo.db.document_context.insert_one(document_data)
-        
-        # Return context ID for the frontend to use
-        return jsonify({
-            "success": True,
-            "context_id": context_id,
-            "filename": secure_filename(file.filename),
-            "excerpt": extracted_text[:200] + "..." if len(extracted_text) > 200 else extracted_text
-        })
-        
-    except Exception as e:
-        print(f"Error uploading document: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-@app.route("/api/documents", methods=["GET"])
-@login_required
-def get_user_documents():
-    """Get list of uploaded documents for the current user"""
-    try:
-        user_id = current_user.get_id()
-        documents = list(mongo.db.document_context.find(
-            {'user_id': ObjectId(user_id)},
-            {'_id': 1, 'filename': 1, 'context_id': 1, 'uploaded_at': 1, 'file_type': 1}
-        ).sort('uploaded_at', -1))
-        
-        # Convert ObjectId to string for JSON serialization
-        for doc in documents:
-            doc['_id'] = str(doc['_id'])
-            doc['uploaded_at'] = doc['uploaded_at'].isoformat()
-            
-        return jsonify({"documents": documents})
-    except Exception as e:
-        print(f"Error retrieving documents: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-@app.route("/api/documents/<context_id>", methods=["GET"])
-@login_required
-def get_document_content(context_id):
-    """Get content of a specific document"""
-    try:
-        user_id = current_user.get_id()
-        document = mongo.db.document_context.find_one({
-            'user_id': ObjectId(user_id),
-            'context_id': context_id
-        })
-        
-        if not document:
-            return jsonify({"error": "Document not found"}), 404
-            
-        document['_id'] = str(document['_id'])
-        document['uploaded_at'] = document['uploaded_at'].isoformat()
-        
-        return jsonify({"document": document})
-    except Exception as e:
-        print(f"Error retrieving document content: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-@app.route("/api/documents/<context_id>", methods=["DELETE"])
-@login_required
-def delete_document(context_id):
-    """Delete a specific document"""
-    try:
-        user_id = current_user.get_id()
-        result = mongo.db.document_context.delete_one({
-            'user_id': ObjectId(user_id),
-            'context_id': context_id
-        })
-        
-        if result.deleted_count == 0:
-            return jsonify({"error": "Document not found"}), 404
-            
-        return jsonify({"success": True})
-    except Exception as e:
-        print(f"Error deleting document: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-def query_gemini_chat(messages, context=None, deep_analysis=False, use_search=False, document_context_id=None):
-    """
-    Uses the Gemini API to generate a chat response based on conversation history,
-    with optional deep analysis, document context, and DuckDuckGo search integration.
-    """
-    try:
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-2.0-flash") # or "gemini-pro"
-
-        gemini_messages = []
-        
-        # Add regular context if provided
-        if context:
-            gemini_messages.append({"role": "user", "parts": [{"text": f"Context for this conversation: {context}"}]})
-        
-        # Add document context if provided
-        if document_context_id:
-            document = mongo.db.document_context.find_one({'context_id': document_context_id})
-            if document and 'text_content' in document:
-                document_text = document['text_content']
-                # Truncate if extremely long
-                if len(document_text) > 25000:
-                    document_text = document_text[:25000] + "... [Document truncated due to length]"
-                
-                gemini_messages.append({
-                    "role": "user", 
-                    "parts": [{"text": f"Document context for this conversation (from file: {document['filename']}):\n\n{document_text}"}]
-                })
-
-        # Incorporate search results if use_search is True
-        search_context_text = ""
-        if use_search and messages: # Only search if there are messages (to have a query)
-            last_user_message_content = messages[-1]['content']
-            search_results = query_duckduckgo_text(last_user_message_content)
-            search_context_text = generate_search_context(search_results)
-            if search_context_text:
-                gemini_messages.append({"role": "user", "parts": [{"text": f"Search Results:\n{search_context_text}"}]}) # Add search results as context
-
-        for msg in messages:
-            gemini_messages.append({"role": msg['role'], "parts": [{"text": msg['content']}]})
-
-        prompt_prefix = ""
-        if deep_analysis:
-            prompt_prefix += (
-                "Perform a deep and comprehensive analysis in your response. "
-                "Consider multiple perspectives, underlying mechanisms, and potential implications. "
-            )
-
-        # Prepend prompt prefix to the last user message (which is the current turn's prompt)
-        if gemini_messages and gemini_messages[-1]['role'] == 'user': # Ensure there's a user message
-            last_message_content = gemini_messages[-1]['parts'][0]['text']
-            gemini_messages[-1]['parts'][0]['text'] = prompt_prefix + last_message_content
-
-        chat = model.start_chat(history=gemini_messages)
-        response = chat.send_message(gemini_messages[-1]["parts"][0]["text"]) # Send the (potentially modified) last user message
-
-        return response.text
-    except Exception as e:
-        print("Gemini API chat error:", e)
-        return None
-
-@app.route("/api/chat", methods=["POST"])
-def handle_chat():
-    data = request.json
-    messages = data.get("messages", [])
-    context = data.get("context")
-    deep_analysis_enabled = data.get("deep_analysis", False)
-    use_search_enabled = data.get("use_search", False)
-    document_context_id = data.get("document_context_id")
-
-    if not messages:
-        return jsonify({"error": "No messages provided"}), 400
-
-    gemini_response_text = query_gemini_chat(
-        messages,
-        context,
-        deep_analysis=deep_analysis_enabled,
-        use_search=use_search_enabled,
-        document_context_id=document_context_id
-    )
-
-    if gemini_response_text is None:
-        return jsonify({"error": "Error generating chat response from Gemini"}), 500
-
-    final_response = {
-        "response": gemini_response_text,
-        "deep_analysis": deep_analysis_enabled,
-        "use_search": use_search_enabled,
-        "document_processed": bool(document_context_id)
-    }
+    elif citation_format.lower() == "mla":
+        citation = f"{authors}. \"{title}.\" arXiv preprint, {year}."
+        if url:
+            citation += f" Web. {url}"
     
-    # Log search history for logged-in users
-    if current_user.is_authenticated and len(messages) > 0:
-        query = messages[-1]['content']
-        search_type = "deep" if deep_analysis_enabled else "quick"
-        SearchHistory.add_search(mongo.db, current_user.get_id(), query, search_type, document_id=document_context_id)
+    elif citation_format.lower() == "chicago":
+        citation = f"{authors}. \"{title}.\" arXiv preprint, {year}."
+        if url:
+            citation += f" {url}"
     
-    return jsonify(final_response)
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-@app.route("/api/query", methods=["POST"])
-def handle_query():
-    data = request.json
-    user_query = data.get("query", "")
-    deep_analysis = data.get("enable_deep_analysis", False)
-
-    if not user_query:
-        return jsonify({"error": "No query provided"}), 400
-
-    search_results = query_duckduckgo_text(user_query)
-    generated_answer = generate_answer_from_search(user_query, search_results, deep_analysis)
-
-    if generated_answer is None:
-        return jsonify({"error": "Error generating answer from Gemini"}), 500
-
-    final_response = {
-        "query": user_query,
-        "search_results": search_results,
-        "answer": generated_answer,
-        "deep_analysis": deep_analysis
-    }
+    elif citation_format.lower() == "ieee":
+        if reference_number:
+            citation = f"[{reference_number}] {authors}, \"{title},\" arXiv preprint, {year}."
+        else:
+            citation = f"{authors}, \"{title},\" arXiv preprint, {year}."
+        if doi:
+            citation += f" doi: {doi}"
     
-    # Log search history for logged-in users
-    if current_user.is_authenticated:
-        search_type = "deep" if deep_analysis else "quick"
-        results_count = len(search_results) if search_results else 0
-        SearchHistory.add_search(
-            mongo.db, 
-            current_user.get_id(), 
-            user_query, 
-            search_type, 
-            results_count,
-            None,  # No papers for regular searches
-            generated_answer,  # Save the answer
-            search_results  # Save the search results
-        )
+    elif citation_format.lower() == "harvard":
+        citation = f"{authors} {year}, '{title}', arXiv preprint."
+        if url:
+            citation += f" Available at: {url}"
     
-    return jsonify(final_response)
+    else:  # Default to APA
+        citation = f"{authors} ({year}). {title}. arXiv preprint."
+        if doi:
+            citation += f" https://doi.org/{doi}"
+        elif url:
+            citation += f" Retrieved from {url}"
+    
+    return citation
 
+def generate_references_section(papers, citation_format="apa"):
+    """Generate a properly formatted references section"""
+    references = []
+    
+    for i, paper in enumerate(papers, 1):
+        citation = format_citation(paper, citation_format, reference_number=i)
+        references.append(citation)
+    
+    # Sort references alphabetically for most formats (except IEEE which uses numbers)
+    if citation_format.lower() != "ieee":
+        references.sort()
+    
+    references_text = "\n".join(references)
+    
+    return f"""
+## REFERENCES
 
-def generate_answer_from_search(user_query, search_results, deep_analysis=False):
-    """
-    Generates answer with optional deep analysis mode
-    """
-    combined_text = ""
-    # Remove the [:3] slice to use all search results instead of just the first 3
-    for result in search_results:
-        title = result.get("title", "No title")
-        snippet = result.get("body", "No snippet available")
-        url = result.get("href", "")
-        combined_text += f"Title: {title}\nSnippet: {snippet}\nURL: {url}\n\n"
+{references_text}
 
-    base_prompt = (
-        "To generate a response for the following query, follow these steps:\n\n"
-        "1. Perform comprehensive analysis of all provided sources\n"
-        "2. Identify technical specifications and underlying mechanisms\n"
-        "3. Cross-reference with known similar systems\n"
-    )
+---
+**Citation Format**: {citation_format.upper()}
+**Total References**: {len(references)}
+"""
 
-    if deep_analysis:
-        base_prompt += (
-            "4. Conduct multi-perspective evaluation (technical, social, ethical)\n"
-            "5. Generate predictive models for future developments\n"
-            "6. Formulate potential failure scenarios and mitigation strategies\n\n"
-        )
-    else:
-        base_prompt += (
-            "4. Extract key actionable insights\n"
-            "5. Summarize in clear, concise points\n\n"
-        )
+def create_in_text_citations(papers, citation_format="apa"):
+    """Create in-text citation mappings for papers"""
+    citations = {}
+    
+    for i, paper in enumerate(papers, 1):
+        title = paper.get('title', 'Unknown Title')
+        authors = paper.get('authors', 'Unknown Author')
+        year = paper.get('published_year', 'n.d.')
+        
+        # Get first author surname for in-text citations
+        first_author = authors.split(',')[0].strip()
+        if ' ' in first_author:
+            surname = first_author.split()[-1]
+        else:
+            surname = first_author
+        
+        if citation_format.lower() == "apa":
+            if ',' in authors and 'et al' not in authors:
+                citations[title] = f"({surname} et al., {year})"
+            else:
+                citations[title] = f"({surname}, {year})"
+        
+        elif citation_format.lower() == "mla":
+            citations[title] = f"({surname})"
+        
+        elif citation_format.lower() == "chicago":
+            citations[title] = f"({surname} {year})"
+        
+        elif citation_format.lower() == "ieee":
+            citations[title] = f"[{i}]"
+        
+        elif citation_format.lower() == "harvard":
+            citations[title] = f"({surname} {year})"
+        
+        else:  # Default to APA
+            citations[title] = f"({surname}, {year})"
+    
+    return citations
 
-    prompt = (
-        f"{base_prompt}"
-        "Now, apply these steps to the following data:\n\n"
-        f"{combined_text}\n"
-        f"Query: {user_query}\n\n"
-        "Provide a comprehensive response:\n"
-    )
-
-    return query_gemini(prompt,deep_analysis)
-
-
-def query_gemini(prompt, deep_analysis=False):  # Add deep_analysis parameter
+def query_arxiv(query, max_results=20, sort_by=arxiv.SortCriterion.Relevance):
+    """Enhanced arXiv search with better metadata extraction"""
     try:
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            generation_config={
-                "max_output_tokens": 2048 if deep_analysis else 1024,
-                "temperature": 0.7 if deep_analysis else 0.3
-            }
-        )
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        print("Gemini API error:", e)
-        return None
-
-def query_arxiv(query, max_results=10):  # Increased from 5 to 10
-    """
-    Query arXiv for academic papers based on the given query.
-    Returns a list of paper data.
-    """
-    try:
-        # Construct the API query
         search = arxiv.Search(
             query=query,
             max_results=max_results,
-            sort_by=arxiv.SortCriterion.Relevance
+            sort_by=sort_by
         )
         
-        # Execute the search and collect results
-        print("Executing arXiv search...")
         papers = []
-        paper_ids = []  # Keep track of IDs to avoid duplicates
-        
-        for result in arxiv.Client(page_size=max_results, delay_seconds=1, num_retries=2).results(search):
+        for result in arxiv.Client(page_size=max_results, delay_seconds=1, num_retries=3).results(search):
             try:
-                # Skip if we already have this paper
-                if result.entry_id in paper_ids:
-                    continue
-                    
-                paper_ids.append(result.entry_id)
+                published_date = result.published.strftime("%Y-%m-%d") if result.published else "Unknown"
+                published_year = result.published.year if result.published else None
+                authors = ", ".join(author.name for author in result.authors) if result.authors else "Unknown"
                 
-                # Extract publication date safely
-                try:
-                    published_date = result.published.strftime("%Y-%m-%d") if result.published else "Unknown"
-                    published_year = result.published.year if result.published else None
-                except:
-                    published_date = "Unknown"
-                    published_year = None
-                
-                # Extract authors safely
-                try:
-                    authors_list = [{"name": author.name} for author in result.authors] if result.authors else []
-                    authors = ", ".join(author.name for author in result.authors) if result.authors else "Unknown"
-                except:
-                    authors_list = []
-                    authors = "Unknown"
-                
-                # Extract categories
-                try:
-                    categories = result.categories if hasattr(result, 'categories') else []
-                except:
-                    categories = []
-                
-                # Try to extract citation count and references (using pattern matching as a fallback since arXiv doesn't directly provide this)
-                citations = []
-                references = []
-                
-                # Get arXiv ID
-                arxiv_id = result.entry_id.split("/")[-1] if result.entry_id else "unknown"
+                # Extract arXiv ID
+                if result.entry_id:
+                    arxiv_id = result.entry_id.split("/")[-1]
+                else:
+                    arxiv_id = "unknown"
                 
                 # Extract DOI if available
                 doi = None
                 if hasattr(result, 'doi') and result.doi:
                     doi = result.doi
-                elif result.entry_id:
-                    # Try to find DOI in the summary
-                    doi_match = re.search(r'(doi:|DOI:)\s*([^\s]+)', result.summary or '')
-                    if doi_match:
-                        doi = doi_match.group(2)
+                
+                # Extract categories
+                categories = result.categories if hasattr(result, 'categories') else []
                 
                 paper = {
                     "title": result.title or "Unknown Title",
                     "authors": authors,
-                    "authors_list": authors_list,
                     "summary": result.summary or "No summary available",
                     "pdf_url": result.pdf_url or "#",
                     "published": published_date,
                     "published_year": published_year,
                     "arxiv_id": arxiv_id,
-                    "categories": categories,
-                    "citations": citations,
-                    "references": references,
                     "doi": doi,
-                    "url": result.entry_id
+                    "url": result.entry_id,
+                    "categories": categories,
+                    "source": "arXiv"
                 }
                 papers.append(paper)
-                print(f"Found paper: {paper['title']}")
             except Exception as e:
-                print(f"Error processing paper result: {str(e)}")
+                logger.error(f"Error processing paper: {str(e)}")
                 continue
-        
-        print(f"Found {len(papers)} papers")
-        # Add simplified citation network data
-        try:
-            # For each paper, simulate relations to other papers
-            # In a real implementation, this would use actual citation data
-            for i, paper in enumerate(papers):
-                # Randomly select papers that might be related to this one
-                for j, other_paper in enumerate(papers):
-                    if i != j:
-                        # Create artificial citation info for visualization purposes
-                        if paper["published_year"] and other_paper["published_year"]:
-                            if paper["published_year"] > other_paper["published_year"]:
-                                # This paper might cite an older paper
-                                paper["references"].append({
-                                    "title": other_paper["title"],
-                                    "arxiv_id": other_paper["arxiv_id"]
-                                })
-                                other_paper["citations"].append({
-                                    "title": paper["title"],
-                                    "arxiv_id": paper["arxiv_id"]
-                                })
-        except Exception as e:
-            print(f"Error building citation relationships: {str(e)}")
-        
-        # Analyze methodology for each paper
-        papers = analyze_papers_methodologies(papers)
             
         return papers
     except Exception as e:
-        print(f"arXiv search error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error querying arXiv: {str(e)}")
         return []
 
-def generate_arxiv_context(paper_results):
-    """
-    Generates a combined text string from arXiv papers to provide context to Gemini.
-    """
-    combined_text = ""
-    for i, paper in enumerate(paper_results, 1):
-        combined_text += f"Paper {i}:\n"
-        combined_text += f"Title: {paper['title']}\n"
-        combined_text += f"Authors: {paper['authors']}\n"
-        combined_text += f"Published: {paper['published']}\n"
-        combined_text += f"Summary: {paper['summary']}\n"
-        combined_text += f"URL: {paper['pdf_url']}\n\n"
-    return combined_text
+def analyze_papers_with_ai(papers, query):
+    """Comprehensive AI analysis of papers with literature review insights"""
+    try:
+        if not papers:
+            return papers, ""
+        
+        # Create detailed summary of papers for comprehensive analysis
+        papers_summary = []
+        for i, paper in enumerate(papers[:15]):  # Analyze top 15 papers
+            summary_text = paper.get('summary', '')[:300] + '...' if len(paper.get('summary', '')) > 300 else paper.get('summary', '')
+            papers_summary.append(f"""
+{i+1}. **{paper['title']}**
+   Authors: {paper['authors']}
+   Year: {paper['published_year']}
+   Categories: {', '.join(paper.get('categories', []))}
+   Abstract: {summary_text}
+""")
+        
+        analysis_prompt = f"""
+As an expert academic research analyst, provide a comprehensive analysis of these papers for the query: "{query}"
 
-@app.route("/api/deep-research", methods=["POST"])
-def handle_deep_research():
+Papers for Analysis:
+{chr(10).join(papers_summary)}
+
+Provide a detailed analysis covering:
+
+**1. RESEARCH LANDSCAPE OVERVIEW**
+- Current state of research in this field
+- Evolution of research themes over time
+- Key research gaps identified
+
+**2. THEMATIC ANALYSIS**
+- Primary research themes and clusters
+- Methodological approaches being used
+- Theoretical frameworks employed
+- Emerging trends and directions
+
+**3. LITERATURE REVIEW INSIGHTS**
+- Most influential papers in this collection (by relevance and impact)
+- Key findings and contributions from each major theme
+- Contradictions or debates in the literature
+- Consensus areas and established knowledge
+
+**4. METHODOLOGY ANALYSIS**
+- Common methodological approaches
+- Innovative methods being employed
+- Methodological gaps and opportunities
+- Best practices identified
+
+**5. RESEARCH OPPORTUNITIES**
+- Unexplored research questions
+- Methodological innovations needed
+- Interdisciplinary opportunities
+- Future research directions
+
+**6. PRACTICAL IMPLICATIONS**
+- Real-world applications
+- Policy implications
+- Industry relevance
+
+Provide specific paper references (by number) to support each point. Make this analysis suitable for researchers planning their own studies.
+"""
+        
+        analysis = query_gemini(analysis_prompt)
+        return papers, analysis
+    except Exception as e:
+        logger.error(f"Error in AI analysis: {str(e)}")
+        return papers, ""
+
+@app.route('/')
+def index():
+    """Main academic research interface"""
+    return render_template('academic_research.html')
+
+@app.route('/api/academic-search', methods=['POST'])
+def academic_search():
+    """Enhanced academic search with AI analysis and Sci-Hub integration"""
     try:
         data = request.json
-        query = data.get("query", "")
-        max_papers = data.get("max_papers", 3)
-        
-        # Ensure max_papers is an integer and within reasonable bounds
-        try:
-            max_papers = int(max_papers)
-            max_papers = min(max(max_papers, 1), 10)
-        except (ValueError, TypeError):
-            max_papers = 3
-            
-        print(f"Deep research request: query='{query}', max_papers={max_papers}")
+        query = data.get("query", "").strip()
+        max_results = min(data.get("max_results", PAPERS_PER_PAGE), MAX_SEARCH_RESULTS)
+        include_scihub = data.get("include_scihub", True)
+        sort_by = data.get("sort_by", "relevance")
         
         if not query:
-            return jsonify({"error": "No query provided"}), 400
+            return jsonify({"error": "Query is required"}), 400
         
-        # Get papers from arXiv
-        try:
-            paper_results = query_arxiv(query, max_papers)
-            print(f"Found {len(paper_results)} papers for query: {query}")
-        except Exception as e:
-            print(f"Error querying arXiv: {str(e)}")
-            return jsonify({"error": f"Error querying arXiv: {str(e)}"}), 500
+        logger.info(f"Academic search: query='{query}', max_results={max_results}")
         
-        if not paper_results:
-            return jsonify({"error": "No relevant papers found"}), 404
+        # Map sort options
+        sort_mapping = {
+            "relevance": arxiv.SortCriterion.Relevance,
+            "date": arxiv.SortCriterion.SubmittedDate,
+            "updated": arxiv.SortCriterion.LastUpdatedDate
+        }
+        sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
         
-        # Generate methodology comparison
-        methodology_comparison = compare_methodologies(paper_results)
+        # Search arXiv
+        papers = query_arxiv(query, max_results, sort_criterion)
         
-        # Generate context from papers
-        arxiv_context = generate_arxiv_context(paper_results)
+        if not papers:
+            return jsonify({
+                "success": True,
+                "papers": [],
+                "total_count": 0,
+                "analysis": "No papers found for this query.",
+                "scihub_stats": {"total_papers": 0, "available_on_scihub": 0, "availability_rate": 0}
+            })
         
-        # Create an enhanced prompt for Gemini
-        prompt = (
-            f"You are an advanced academic research assistant with expertise in analyzing scientific papers. "
-            f"I need you to provide a comprehensive analysis of the following arXiv papers to answer this query: '{query}'\n\n"
-            f"Research Question: {query}\n\n"
-            f"Here are the relevant papers and their summaries:\n\n{arxiv_context}\n\n"
-            f"Please provide a detailed analysis that includes:\n"
-            f"1. A comprehensive answer to the research question based on the papers\n"
-            f"2. Key findings and methodologies from each relevant paper\n"
-            f"3. Any consensus or contradictions among the different papers\n"
-            f"4. Limitations of current research on this topic\n"
-            f"5. Potential directions for future research\n\n"
-            f"When citing papers, use the format 'According to [Authors] in [Title]...'\n"
-            f"Your analysis should be well-structured with headings and sections, thorough, and scientifically accurate."
-        )
+        # Enhance with Sci-Hub if requested
+        scihub_stats = {"total_papers": len(papers), "available_on_scihub": 0, "availability_rate": 0}
+        if include_scihub:
+            logger.info("Enhancing papers with Sci-Hub access information...")
+            papers = scihub_api.batch_enhance_papers(papers)
+            scihub_stats = scihub_api.get_availability_stats(papers)
         
-        print("Sending enhanced prompt to Gemini for deep analysis")
+        # AI analysis of papers
+        papers, ai_analysis = analyze_papers_with_ai(papers, query)
         
-        # Generate answer using Gemini
-        try:
-            # Use more tokens and higher temperature for academic analysis
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model = genai.GenerativeModel(
-                "gemini-2.0-flash",
-                generation_config={
-                    "max_output_tokens": 4096,
-                    "temperature": 0.7,
-                    "top_p": 0.95,
-                    "top_k": 40
-                }
-            )
-            
-            response = model.generate_content(prompt)
-            answer = response.text
-            
-            if not answer or answer.strip() == "":
-                raise Exception("Gemini returned empty response")
-                
-            print("Successfully received analysis from Gemini")
-            
-        except Exception as e:
-            print(f"Error generating answer from Gemini: {str(e)}")
-            return jsonify({"error": f"Error generating answer from Gemini: {str(e)}"}), 500
-        
-        final_response = {
+        return jsonify({
+            "success": True,
+            "papers": papers,
+            "total_count": len(papers),
+            "analysis": ai_analysis,
+            "scihub_stats": scihub_stats,
             "query": query,
-            "papers": paper_results,
-            "answer": answer,
-            "feature": "deep_research",
-            "analysis_type": "academic",
-            "paper_count": len(paper_results),
-            "methodology_comparison": methodology_comparison
-        }
-        
-        # Log search history for logged-in users
-        if current_user.is_authenticated:
-            SearchHistory.add_search(
-                mongo.db, 
-                current_user.get_id(), 
-                query, 
-                "academic", 
-                len(paper_results), 
-                paper_results,
-                answer  # Save the academic analysis/answer
-            )
-        
-        return jsonify(final_response)
-    
+            "sort_by": sort_by
+        })
+            
     except Exception as e:
-        print(f"Unexpected error in deep research: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        logger.error(f"Error in academic search: {str(e)}")
+        return jsonify({"error": "Search failed"}), 500
 
-# Authentication routes
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('profile'))
-        
-    error = None
-    
-    if request.method == 'POST':
-        email = request.form.get('email_or_username')
-        password = request.form.get('password')
-        
-        if not email or not password:
-            error = 'Email/username and password are required'
-            return render_template('login.html', error=error)
-            
-        try:
-            # Find user by email or username
-            user_data = mongo.db.users.find_one({
-                '$or': [
-                    {'email': email},
-                    {'username': email}
-                ],
-                'provider': 'local'
-            })
-            
-            if user_data and check_password_hash(user_data.get('password_hash', ''), password):
-                user = User(user_data)
-                login_user(user)
-                
-                # Update last login timestamp
-                mongo.db.users.update_one(
-                    {'_id': user_data['_id']},
-                    {'$set': {'last_login': datetime.utcnow()}}
-                )
-                
-                # Track successful login activity
-                track_login_activity(mongo.db, str(user_data['_id']), request, success=True)
-                
-                # Get next parameter or default to profile
-                next_page = request.args.get('next', 'profile')
-                return redirect(url_for(next_page))
-            else:
-                # Track failed login attempt if user exists
-                if user_data:
-                    track_login_activity(mongo.db, str(user_data['_id']), request, success=False)
-                error = 'Invalid email/username or password'
-        except Exception as e:
-            app.logger.error(f"Error during login: {str(e)}")
-            error = 'An error occurred. Please try again later.'
-    
-    return render_template('login.html', error=error)
-
-@app.route("/api/login-activity")
-@login_required
-def get_user_login_activity():
-    """Get login activity history for the current user"""
+@app.route('/api/paper-analysis', methods=['POST'])
+def analyze_paper():
+    """Comprehensive AI analysis of a specific paper"""
     try:
-        history = get_login_history(mongo.db, current_user.get_id())
-        return jsonify({"success": True, "history": history})
-    except Exception as e:
-        app.logger.error(f"Error getting login activity: {e}")
+        data = request.json
+        paper_title = data.get("title", "")
+        paper_abstract = data.get("abstract", "")
+        paper_authors = data.get("authors", "")
+        paper_year = data.get("year", "")
+        paper_categories = data.get("categories", [])
+        
+        if not paper_title:
+            return jsonify({"error": "Paper title is required"}), 400
+        
+        analysis_prompt = f"""
+As an expert academic reviewer, provide a comprehensive analysis of this research paper:
+
+**Paper Details:**
+Title: {paper_title}
+Authors: {paper_authors}
+Year: {paper_year}
+Categories: {', '.join(paper_categories) if paper_categories else 'Not specified'}
+Abstract: {paper_abstract}
+
+**Provide a detailed analysis covering:**
+
+**1. RESEARCH CONTRIBUTION ANALYSIS**
+- Novel contributions and innovations
+- Significance to the field
+- Originality and creativity
+- Theoretical vs. practical contributions
+
+**2. METHODOLOGY EVALUATION**
+- Research design and approach
+- Data collection methods
+- Analysis techniques employed
+- Methodological rigor and validity
+- Reproducibility considerations
+
+**3. THEORETICAL FRAMEWORK**
+- Underlying theoretical foundations
+- Conceptual models used
+- Integration with existing theories
+- Theoretical gaps addressed
+
+**4. KEY FINDINGS & IMPLICATIONS**
+- Primary research findings
+- Statistical significance and effect sizes
+- Practical implications
+- Policy implications
+- Industry applications
+
+**5. STRENGTHS & LIMITATIONS**
+- Methodological strengths
+- Analytical rigor
+- Limitations and constraints
+- Potential biases
+- Generalizability issues
+
+**6. LITERATURE POSITIONING**
+- How this work builds on previous research
+- Gaps in existing literature addressed
+- Contradictions with previous findings
+- Consensus with established knowledge
+
+**7. FUTURE RESEARCH DIRECTIONS**
+- Unanswered questions raised
+- Methodological improvements needed
+- Extensions and applications
+- Interdisciplinary opportunities
+
+**8. QUALITY ASSESSMENT**
+- Overall methodological quality (1-10 scale)
+- Clarity of presentation
+- Completeness of analysis
+- Ethical considerations
+
+**9. RECOMMENDED CITATIONS**
+- Key papers that should be cited alongside this work
+- Foundational papers in this area
+- Recent relevant developments
+
+Provide specific, actionable insights suitable for researchers, reviewers, and practitioners.
+"""
+        
+        analysis = query_gemini(analysis_prompt)
+        
         return jsonify({
-            "success": False,
-            "error": "Failed to retrieve login activity"
-        }), 500
-
-@app.route("/signup", methods=["GET", "POST"])
-def signup():
-    if current_user.is_authenticated:
-        return redirect(url_for('profile'))
-        
-    if request.method == 'POST':
-        username = request.form.get('username')
-        email = request.form.get('email')
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-        
-        if not all([username, email, password, confirm_password]):
-            flash('All fields are required', 'error')
-            return render_template('signup.html', error='All fields are required')
-            
-        if password != confirm_password:
-            flash('Passwords do not match', 'error')
-            return render_template('signup.html', error='Passwords do not match')
-            
-        # Check if username or email already exists
-        try:
-            existing_user = mongo.db.users.find_one({
-                '$or': [
-                    {'username': username},
-                    {'email': email}
-                ]
-            })
-            
-            if existing_user:
-                if existing_user.get('username') == username:
-                    flash('Username already taken', 'error')
-                    return render_template('signup.html', error='Username already taken')
-                else:
-                    flash('Email already registered', 'error')
-                    return render_template('signup.html', error='Email already registered')
-                    
-            # Hash the password
-            password_hash = generate_password_hash(password, method='pbkdf2:sha256')
-            
-            # Create new user
-            new_user = {
-                'username': username,
-                'email': email,
-                'password_hash': password_hash,
-                'provider': 'local',
-                'provider_id': None,
-                'created_at': datetime.now(),
-                'picture': None,
-                'last_login': datetime.now()
-            }
-            
-            result = mongo.db.users.insert_one(new_user)
-            
-            if result.inserted_id:
-                # Create user object and login
-                new_user['_id'] = result.inserted_id
-                user = User(new_user)
-                login_user(user)
-                
-                flash('Account created successfully!', 'success')
-                return redirect(url_for('profile'))
-            else:
-                flash('Failed to create account', 'error')
-                return render_template('signup.html', error='Failed to create account')
-                
-        except Exception as e:
-            print(f"Error during signup: {str(e)}")
-            flash('An error occurred during signup', 'error')
-            return render_template('signup.html', error='An error occurred during signup')
-    
-    return render_template('signup.html')
-
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    session.clear()
-    flash("You have been logged out successfully", "success")
-    return redirect(url_for("home"))
-
-@app.route("/account/settings")
-@login_required
-def account_settings():
-    return render_template("account_settings.html", user=current_user)
-
-@app.route("/account/update", methods=["POST"])
-@login_required
-def update_account():
-    try:
-        data = request.form
-        username = data.get("username", "").strip()
-        name = data.get("name", "").strip()
-        email = data.get("email", "").strip()
-        
-        # Handle profile picture upload
-        picture_url = None
-        if 'profile_picture' in request.files:
-            file = request.files['profile_picture']
-            if file and file.filename:
-                try:
-                    # Use the avatar system's save_profile_picture function
-                    filename = save_profile_picture(file, current_user.username)
-                    if filename:
-                        picture_url = f"/static/uploads/avatars/{filename}"
-                    else:
-                        flash("Failed to process the profile picture. Please ensure it's a valid image file (PNG, JPG, or GIF) under 5MB.", "error")
-                        return redirect(url_for("account_settings"))
-                except Exception as e:
-                    app.logger.error(f"Error processing profile picture: {e}")
-                    flash("Error processing profile picture. Please try a different image.", "error")
-                    return redirect(url_for("account_settings"))
-        
-        # Update user profile
-        success, message = current_user.update_profile(
-            mongo.db,
-            username=username if username else None,
-            name=name if name else None,
-            email=email if email else None,
-            picture=picture_url
-        )
-        
-        if success:
-            flash(message, "success")
-        else:
-            flash(message, "error")
-            
-        return redirect(url_for("account_settings"))
-        
-    except Exception as e:
-        app.logger.error(f"Error updating account: {e}")
-        flash("An error occurred while updating your account", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/account/change-password", methods=["POST"])
-@login_required
-def change_password():
-    try:
-        data = request.form
-        current_password = data.get("current_password", "")
-        new_password = data.get("new_password", "")
-        confirm_password = data.get("confirm_password", "")
-        
-        # Basic validation
-        if new_password != confirm_password:
-            flash("New passwords do not match", "error")
-            return redirect(url_for("account_settings"))
-            
-        if len(new_password) < 8:
-            flash("New password must be at least 8 characters long", "error")
-            return redirect(url_for("account_settings"))
-        
-        # Change password
-        success, message = current_user.change_password(mongo.db, current_password, new_password)
-        
-        if success:
-            flash(message, "success")
-        else:
-            flash(message, "error")
-            
-        return redirect(url_for("account_settings"))
-        
-    except Exception as e:
-        print(f"Error changing password: {e}")
-        flash("An error occurred while changing your password", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/account/delete", methods=["POST"])
-@login_required
-def delete_account():
-    try:
-        # Confirm with password for email users
-        if current_user.provider == 'email':
-            password = request.form.get("password", "")
-            if not current_user.check_password(password):
-                flash("Incorrect password", "error")
-                return redirect(url_for("account_settings"))
-        
-        # Delete account
-        success, message = current_user.delete_account(mongo.db)
-        
-        if success:
-            logout_user()
-            session.clear()
-            flash(message, "success")
-            return redirect(url_for("home"))
-        else:
-            flash(message, "error")
-            return redirect(url_for("account_settings"))
-            
-    except Exception as e:
-        print(f"Error deleting account: {e}")
-        flash("An error occurred while deleting your account", "error")
-        return redirect(url_for("account_settings"))
-
-# GitHub login route
-@app.route("/login/github")
-def github_login():
-    redirect_uri = url_for("github_callback", _external=True)
-    print(f"GitHub callback URL: {redirect_uri}")
-    return oauth.github.authorize_redirect(redirect_uri)
-
-@app.route("/login/github/callback")
-def github_callback():
-    try:
-        token = oauth.github.authorize_access_token()
-        resp = oauth.github.get("user", token=token)
-        user_info = resp.json()
-        
-        # Get email
-        resp = oauth.github.get("user/emails", token=token)
-        emails = resp.json()
-        email = next((email["email"] for email in emails if email["primary"]), None)
-        
-        # Check if user exists
-        user = User.get_by_provider_id(mongo.db, "github", str(user_info["id"]))
-        
-        if not user:
-            # Create a new user
-            user_data = {
-                "email": email or "",
-                "username": user_info.get("login", ""),
-                "name": user_info.get("name", ""),
-                "picture": user_info.get("avatar_url", ""),
-                "provider": "github",
-                "provider_id": str(user_info["id"]),
-            }
-            user = User(user_data).save(mongo.db)
-        else:
-            # Update user info
-            user.name = user_info.get("name", user.name)
-            user.picture = user_info.get("avatar_url", user.picture)
-            user.save(mongo.db)
-        
-        login_user(user)
-        
-        # Track successful GitHub login
-        track_login_activity(mongo.db, user.get_id(), request, success=True)
-        
-        return redirect(url_for("home"))
-    except Exception as e:
-        app.logger.error(f"Error in GitHub callback: {e}")
-        flash(f"Authentication error: {str(e)}", "error")
-        return redirect(url_for("login"))
-
-# User profile and settings
-@app.route("/profile")
-@login_required
-def profile():
-    search_history = SearchHistory.get_user_history(mongo.db, current_user.get_id())
-    favorites = Favorite.get_favorites(mongo.db, current_user.get_id())
-    recommendations = Recommendation.get_recommendations(mongo.db, current_user.get_id())
-    
-    return render_template(
-        "profile.html", 
-        user=current_user, 
-        search_history=search_history,
-        favorites=favorites,
-        recommendations=recommendations
-    )
-
-# API routes for user data
-@app.route("/api/history", methods=["GET"])
-@login_required
-def get_history():
-    history = SearchHistory.get_user_history(mongo.db, current_user.get_id())
-    # Convert ObjectId to string for JSON serialization
-    for item in history:
-        item["_id"] = str(item["_id"])
-        item["user_id"] = str(item["user_id"])
-        item["timestamp"] = item["timestamp"].isoformat()
-    
-    return jsonify({"history": history})
-
-@app.route("/api/history/clear", methods=["POST"])
-@login_required
-def clear_history():
-    SearchHistory.clear_history(mongo.db, current_user.get_id())
-    return jsonify({"success": True})
-
-@app.route("/api/favorites", methods=["GET"])
-@login_required
-def get_favorites():
-    favorites = Favorite.get_favorites(mongo.db, current_user.get_id())
-    # Convert ObjectId to string for JSON serialization
-    for item in favorites:
-        item["_id"] = str(item["_id"])
-        item["user_id"] = str(item["user_id"])
-        item["timestamp"] = item["timestamp"].isoformat()
-    
-    return jsonify({"favorites": favorites})
-
-@app.route("/api/favorites/add", methods=["POST"])
-@login_required
-def add_favorite():
-    data = request.json
-    Favorite.add_favorite(
-        mongo.db,
-        current_user.get_id(),
-        data.get("name", "Unnamed"),
-        data.get("query", ""),
-        data.get("search_type", "quick"),
-        data.get("result"),
-        data.get("paper")
-    )
-    return jsonify({"success": True})
-
-@app.route("/api/favorites/remove", methods=["POST"])
-@login_required
-def remove_favorite():
-    data = request.json
-    Favorite.remove_favorite(mongo.db, data.get("favorite_id"))
-    return jsonify({"success": True})
-
-@app.route("/api/recommendations", methods=["GET"])
-@login_required
-def get_recommendations():
-    recommendations = Recommendation.get_recommendations(mongo.db, current_user.get_id())
-    return jsonify({"recommendations": recommendations})
-
-@app.route('/forgot-password', methods=['GET', 'POST'])
-def forgot_password():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        
-        if not email:
-            return render_template('forgot_password.html', error='Email is required')
-            
-        # Check if user exists
-        user = mongo.db.users.find_one({'email': email})
-        if not user:
-            # Don't reveal that the user doesn't exist for security reasons
-            return render_template('forgot_password.html', 
-                                  message='If an account with that email exists, a password reset link has been sent.')
-        
-        # Generate reset token
-        reset_token = secrets.token_urlsafe(32)
-        expiration = datetime.utcnow() + timedelta(seconds=PASSWORD_RESET_EXPIRATION)
-        
-        # Store token in database
-        mongo.db.password_resets.insert_one({
-            'email': email,
-            'token': reset_token,
-            'expires_at': expiration
+            "success": True,
+            "analysis": analysis,
+            "paper_title": paper_title
         })
         
-        # Create reset link
-        reset_url = url_for('reset_password', token=reset_token, _external=True)
-        
-        # Send email
-        subject = "Reset Your Sentino Password"
-        html_body = f"""
-        <html>
-            <body>
-                <h2>Reset Your Password</h2>
-                <p>You've requested to reset your password. Click the link below to set a new password:</p>
-                <p><a href="{reset_url}">Reset Password</a></p>
-                <p>This link will expire in 1 hour.</p>
-                <p>If you didn't request this, please ignore this email.</p>
-                <p>Thanks,<br>The Sentino Team</p>
-            </body>
-        </html>
-        """
-        
-        if send_email(email, subject, html_body):
-            return render_template('forgot_password.html', 
-                                  message='If an account with that email exists, a password reset link has been sent.')
-        else:
-            return render_template('forgot_password.html', 
-                                  error='Failed to send reset email. Please try again later.')
-    
-    return render_template('forgot_password.html')
+    except Exception as e:
+        logger.error(f"Error in paper analysis: {str(e)}")
+        return jsonify({"error": "Analysis failed"}), 500
 
-@app.route('/reset-password/<token>', methods=['GET', 'POST'])
-def reset_password(token):
-    # Check if token exists and is valid
-    reset_record = mongo.db.password_resets.find_one({
-        'token': token,
-        'expires_at': {'$gt': datetime.utcnow()}
+@app.route('/api/research-suggestions', methods=['POST'])
+def research_suggestions():
+    """Generate comprehensive research suggestions based on query"""
+    try:
+        data = request.json
+        query = data.get("query", "").strip()
+        
+        if not query:
+            return jsonify({"error": "Query is required"}), 400
+        
+        suggestions_prompt = f"""
+As an expert research advisor, provide comprehensive research guidance for the query: "{query}"
+
+**RESEARCH FRAMEWORK:**
+
+**1. RESEARCH QUESTIONS & HYPOTHESES**
+- 7-10 specific, testable research questions
+- Primary and secondary research hypotheses
+- Null and alternative hypotheses where applicable
+- Research objectives (descriptive, explanatory, exploratory)
+
+**2. LITERATURE REVIEW STRATEGY**
+- Key databases to search (beyond arXiv)
+- Essential search terms and Boolean combinations
+- Inclusion/exclusion criteria for literature
+- Systematic review methodology recommendations
+- Citation analysis approaches
+
+**3. THEORETICAL FOUNDATIONS**
+- Relevant theoretical frameworks
+- Conceptual models to consider
+- Interdisciplinary theories that apply
+- Emerging theoretical perspectives
+
+**4. METHODOLOGY RECOMMENDATIONS**
+- Quantitative approaches (experimental, survey, observational)
+- Qualitative methods (interviews, ethnography, case studies)
+- Mixed-methods designs
+- Novel methodological approaches
+- Data collection strategies
+
+**5. KEY RESEARCHERS & INSTITUTIONS**
+- Leading researchers in this field
+- Influential research groups and labs
+- Key institutions and universities
+- Emerging scholars to follow
+
+**6. PUBLICATION VENUES**
+- Top-tier journals in this area
+- Relevant conferences and symposiums
+- Special issues and themed collections
+- Open access publication opportunities
+
+**7. RESEARCH GAPS & OPPORTUNITIES**
+- Underexplored areas
+- Methodological innovations needed
+- Interdisciplinary opportunities
+- Practical applications lacking research
+
+**8. FUNDING & COLLABORATION**
+- Potential funding sources
+- Grant opportunities
+- Collaboration possibilities
+- Industry partnerships
+
+**9. ETHICAL CONSIDERATIONS**
+- IRB/Ethics approval requirements
+- Data privacy and security issues
+- Participant consent considerations
+- Potential ethical dilemmas
+
+**10. TIMELINE & MILESTONES**
+- Suggested research timeline (6 months to 3 years)
+- Key milestones and deliverables
+- Publication strategy
+- Dissemination plan
+
+Provide specific, actionable guidance suitable for researchers at all career stages.
+"""
+        
+        suggestions = query_gemini(suggestions_prompt)
+        
+        return jsonify({
+            "success": True,
+            "suggestions": suggestions,
+            "query": query
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating research suggestions: {str(e)}")
+        return jsonify({"error": "Failed to generate suggestions"}), 500
+
+@app.route('/api/literature-review', methods=['POST'])
+def generate_literature_review():
+    """Generate a comprehensive literature review based on papers"""
+    try:
+        data = request.json
+        papers = data.get("papers", [])
+        query = data.get("query", "")
+        review_type = data.get("review_type", "systematic")  # systematic, narrative, scoping
+        citation_format = data.get("citation_format", "apa")  # apa, mla, chicago, ieee, harvard
+        
+        if not papers:
+            return jsonify({"error": "Papers list is required"}), 400
+        
+        # Generate structured analysis of papers first
+        paper_analysis = analyze_papers_structure(papers, query)
+        
+        # Create in-text citations mapping
+        in_text_citations = create_in_text_citations(papers, citation_format)
+        
+        # Generate references section
+        references_section = generate_references_section(papers, citation_format)
+        
+        # Create detailed paper summaries with citations
+        papers_detail = []
+        for i, paper in enumerate(papers[:20]):  # Limit to top 20 papers
+            title = paper.get('title', 'Unknown Title')
+            citation = in_text_citations.get(title, f"(Paper {i+1})")
+            papers_detail.append(f"""
+Paper {i+1}: {paper.get('title', 'Unknown Title')} {citation}
+Authors: {paper.get('authors', 'Unknown')}
+Year: {paper.get('published_year', 'Unknown')}
+Abstract: {paper.get('summary', 'No abstract available')[:400]}...
+Categories: {', '.join(paper.get('categories', []))}
+DOI: {paper.get('doi', 'Not available')}
+""")
+        
+        review_prompt = f"""
+As an expert academic writer, create a comprehensive literature review on "{query}" based on the following papers.
+
+**Citation Format**: {citation_format.upper()}
+**In-text Citation Examples**: {list(in_text_citations.values())[:3]}
+
+**Papers to Review:**
+{chr(10).join(papers_detail)}
+
+**Structural Analysis:**
+{paper_analysis}
+
+**Create a {review_type.title()} Literature Review with the following structure:**
+
+**1. INTRODUCTION**
+- Define the scope and objectives of this review
+- Explain the significance of this research area
+- Outline the review methodology and selection criteria
+
+**2. THEORETICAL BACKGROUND**
+- Key theoretical frameworks identified in the literature
+- Evolution of theoretical understanding
+- Competing theories and paradigms
+
+**3. METHODOLOGICAL APPROACHES**
+- Overview of research methods used across studies
+- Strengths and limitations of different approaches
+- Methodological trends and innovations
+- Quality assessment of methodologies
+
+**4. THEMATIC ANALYSIS**
+- Major themes and research clusters
+- Convergent findings across studies
+- Divergent findings and contradictions
+- Gaps in current knowledge
+
+**5. CHRONOLOGICAL DEVELOPMENT**
+- Evolution of research over time
+- Milestone studies and breakthrough findings
+- Shifts in research focus and methodology
+- Emerging trends
+
+**6. CRITICAL ANALYSIS**
+- Strengths of the current literature
+- Limitations and weaknesses identified
+- Methodological concerns
+- Theoretical gaps
+
+**7. SYNTHESIS OF FINDINGS**
+- Consensus areas in the literature
+- Unresolved debates and controversies
+- Integration of findings across studies
+- Implications for theory and practice
+
+**8. RESEARCH GAPS AND FUTURE DIRECTIONS**
+- Identified gaps in current research
+- Methodological improvements needed
+- Theoretical developments required
+- Practical applications to explore
+
+**9. CONCLUSIONS**
+- Summary of key insights
+- Implications for researchers and practitioners
+- Recommendations for future research
+
+**10. METHODOLOGICAL APPENDIX**
+- Review methodology details
+- Search strategy and databases used
+- Inclusion/exclusion criteria
+- Quality assessment framework
+
+**IMPORTANT CITATION INSTRUCTIONS:**
+- Use {citation_format.upper()} format for all citations
+- Include in-text citations throughout the review using the format: {list(in_text_citations.values())[0] if in_text_citations else "(Author, Year)"}
+- Reference papers by their assigned citations from the list above
+- Ensure proper citation placement after key statements and findings
+- Include a complete References section at the end
+
+Make this suitable for publication in an academic journal with proper {citation_format.upper()} citations throughout.
+"""
+        
+        review = query_gemini(review_prompt)
+        
+        # If AI failed, generate a structured review using our analysis
+        if not review or "basic analysis generated without AI" in review:
+            review = generate_structured_literature_review(papers, query, review_type, paper_analysis, citation_format, in_text_citations)
+        
+        # Always append references section
+        if not "## REFERENCES" in review and not "# REFERENCES" in review:
+            review += f"\n\n{references_section}"
+        
+        return jsonify({
+            "success": True,
+            "literature_review": review,
+            "query": query,
+            "review_type": review_type,
+            "citation_format": citation_format,
+            "papers_analyzed": len(papers),
+            "structural_analysis": paper_analysis,
+            "references": references_section
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating literature review: {str(e)}")
+        return jsonify({"error": "Failed to generate literature review"}), 500
+
+def analyze_papers_structure(papers, query):
+    """Analyze paper structure and extract key information"""
+    if not papers:
+        return "No papers provided for analysis."
+    
+    # Temporal analysis
+    years = [p.get('published_year') for p in papers if p.get('published_year')]
+    year_range = f"{min(years)}-{max(years)}" if years else "Unknown"
+    
+    # Category analysis
+    all_categories = []
+    for paper in papers:
+        if paper.get('categories'):
+            all_categories.extend(paper['categories'])
+    
+    from collections import Counter
+    category_counts = Counter(all_categories)
+    top_categories = category_counts.most_common(5)
+    
+    # Author analysis
+    all_authors = []
+    for paper in papers:
+        if paper.get('authors'):
+            authors = paper['authors'].split(', ')
+            all_authors.extend(authors)
+    
+    author_counts = Counter(all_authors)
+    prolific_authors = author_counts.most_common(5)
+    
+    analysis = f"""
+**STRUCTURAL ANALYSIS OF {len(papers)} PAPERS**
+
+**Temporal Distribution:**
+- Publication years: {year_range}
+- Total papers: {len(papers)}
+- Recent papers (last 3 years): {len([p for p in papers if p.get('published_year', 0) >= 2021])}
+
+**Research Categories:**
+- Primary categories: {', '.join([cat[0] for cat in top_categories[:3]])}
+- Category distribution: {dict(top_categories)}
+
+**Author Analysis:**
+- Unique authors: {len(set(all_authors))}
+- Most prolific authors: {', '.join([f"{author[0]} ({author[1]} papers)" for author in prolific_authors[:3]])}
+
+**Methodological Indicators:**
+- Papers with experimental keywords: {len([p for p in papers if any(keyword in p.get('summary', '').lower() for keyword in ['experiment', 'empirical', 'study'])])}
+- Papers with theoretical keywords: {len([p for p in papers if any(keyword in p.get('summary', '').lower() for keyword in ['theory', 'theoretical', 'framework'])])}
+- Papers with review keywords: {len([p for p in papers if any(keyword in p.get('summary', '').lower() for keyword in ['review', 'survey', 'overview'])])}
+"""
+    
+    return analysis
+
+def generate_structured_literature_review(papers, query, review_type, structural_analysis, citation_format="apa", in_text_citations=None):
+    """Generate a structured literature review without AI"""
+    
+    # Sort papers by year
+    sorted_papers = sorted(papers, key=lambda x: x.get('published_year', 0), reverse=True)
+    
+    # Generate citations if not provided
+    if not in_text_citations:
+        in_text_citations = create_in_text_citations(papers, citation_format)
+    
+    review = f"""
+# {review_type.title()} Literature Review: {query}
+
+## 1. INTRODUCTION
+
+This {review_type} literature review examines the current state of research on "{query}" based on an analysis of {len(papers)} academic papers. The review aims to synthesize existing knowledge, identify research gaps, and provide directions for future research.
+
+### Scope and Objectives
+- Analyze current research trends in {query}
+- Identify methodological approaches and theoretical frameworks
+- Synthesize key findings and contributions
+- Highlight research gaps and future opportunities
+
+### Review Methodology
+- Database: arXiv academic papers
+- Search strategy: Keyword-based search for "{query}"
+- Inclusion criteria: Relevant academic papers with available abstracts
+- Analysis period: Recent publications with focus on emerging trends
+
+{structural_analysis}
+
+## 2. THEORETICAL BACKGROUND
+
+The literature on {query} draws from multiple theoretical frameworks and disciplinary perspectives. Based on the analysis of included papers, several key theoretical approaches emerge:
+
+### Key Theoretical Frameworks
+The reviewed papers demonstrate diverse theoretical foundations, reflecting the interdisciplinary nature of research in this area. Common theoretical approaches include:
+
+- Empirical research methodologies
+- Theoretical modeling and framework development  
+- Applied research with practical implications
+- Cross-disciplinary integration approaches
+
+## 3. METHODOLOGICAL APPROACHES
+
+### Research Design Patterns
+The reviewed literature employs various methodological approaches:
+
+**Quantitative Methods:**
+- Experimental designs and controlled studies
+- Statistical analysis and data modeling
+- Computational approaches and simulations
+
+**Qualitative Methods:**
+- Case study methodologies
+- Theoretical analysis and conceptual development
+- Literature reviews and meta-analyses
+
+**Mixed Methods:**
+- Combined quantitative and qualitative approaches
+- Multi-phase research designs
+- Triangulation strategies
+
+## 4. THEMATIC ANALYSIS
+
+### Major Research Themes
+
+Based on the analysis of {len(papers)} papers, several major themes emerge:
+
+"""
+    
+    # Add paper summaries by theme with proper citations
+    for i, paper in enumerate(sorted_papers[:10], 1):
+        title = paper.get('title', 'Unknown Title')
+        citation = in_text_citations.get(title, f"(Paper {i})")
+        review += f"""
+**{title}** {citation}
+- Authors: {paper.get('authors', 'Unknown')}
+- Year: {paper.get('published_year', 'Unknown')}
+- Key contribution: {paper.get('summary', 'No abstract available')[:200]}...
+- Categories: {', '.join(paper.get('categories', []))}
+
+"""
+    
+    review += f"""
+## 5. CHRONOLOGICAL DEVELOPMENT
+
+The research in {query} has evolved significantly over time, with notable developments in recent years:
+
+### Recent Trends ({max([p.get('published_year', 0) for p in papers if p.get('published_year')]) if papers else 'Recent'} and beyond)
+- Increased focus on practical applications
+- Integration of computational methods
+- Cross-disciplinary collaboration
+- Methodological innovations
+
+## 6. CRITICAL ANALYSIS
+
+### Strengths of Current Literature
+- Diverse methodological approaches
+- Growing body of empirical evidence
+- Strong theoretical foundations in established areas
+- Increasing interdisciplinary collaboration
+
+### Limitations and Gaps
+- Limited longitudinal studies
+- Need for more standardized methodologies
+- Gaps in cross-cultural research
+- Limited replication studies
+
+## 7. SYNTHESIS OF FINDINGS
+
+### Consensus Areas
+The literature shows general agreement on:
+- The importance of methodological rigor
+- The need for interdisciplinary approaches
+- The value of both theoretical and practical contributions
+
+### Ongoing Debates
+Key areas of ongoing discussion include:
+- Optimal methodological approaches
+- Theoretical framework selection
+- Practical application strategies
+- Future research priorities
+
+## 8. RESEARCH GAPS AND FUTURE DIRECTIONS
+
+### Identified Gaps
+1. **Methodological Gaps**: Need for more standardized approaches
+2. **Theoretical Gaps**: Limited integration of emerging theories
+3. **Empirical Gaps**: Insufficient longitudinal and replication studies
+4. **Practical Gaps**: Limited real-world application studies
+
+### Future Research Opportunities
+- Development of novel methodological approaches
+- Integration of emerging technologies
+- Cross-disciplinary collaboration
+- Longitudinal and comparative studies
+
+## 9. CONCLUSIONS
+
+This {review_type} literature review of {len(papers)} papers on "{query}" reveals a dynamic and evolving field with significant research activity. The literature demonstrates:
+
+- Strong methodological diversity
+- Growing theoretical sophistication
+- Increasing practical relevance
+- Substantial opportunities for future research
+
+### Implications for Researchers
+- Consider interdisciplinary approaches
+- Focus on methodological rigor
+- Address identified research gaps
+- Build on existing theoretical foundations
+
+### Implications for Practitioners
+- Apply evidence-based approaches
+- Consider multiple methodological perspectives
+- Stay current with emerging trends
+- Contribute to practice-research integration
+
+## 10. METHODOLOGICAL APPENDIX
+
+### Search Strategy
+- Primary database: arXiv
+- Search terms: "{query}"
+- Time period: Recent publications
+- Language: English
+
+### Inclusion Criteria
+- Relevant to research question
+- Available abstract/summary
+- Academic quality standards
+- Accessible through search database
+
+### Analysis Framework
+- Thematic analysis approach
+- Chronological organization
+- Methodological categorization
+- Quality assessment considerations
+
+---
+
+**Note:** This literature review was generated using structured analysis techniques. For enhanced AI-powered insights and deeper analytical capabilities, configure the Gemini API key in your environment settings.
+
+**Total Papers Analyzed:** {len(papers)}
+**Review Type:** {review_type.title()}
+**Citation Format:** {citation_format.upper()}
+**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+"""
+    
+    # Add references section
+    references_section = generate_references_section(papers, citation_format)
+    review += f"\n\n{references_section}"
+    
+    return review
+
+@app.route('/api/methodology-analysis', methods=['POST'])
+def methodology_analysis():
+    """Analyze and suggest research methodologies with fallback"""
+    try:
+        data = request.json
+        research_question = data.get("research_question", "")
+        papers = data.get("papers", [])
+        research_type = data.get("research_type", "empirical")  # empirical, theoretical, applied
+        citation_format = data.get("citation_format", "apa")  # apa, mla, chicago, ieee, harvard
+        
+        if not research_question:
+            return jsonify({"error": "Research question is required"}), 400
+        
+        # Analyze methodologies from papers if provided
+        methodology_context = ""
+        paper_methods_analysis = ""
+        in_text_citations = {}
+        references_section = ""
+        
+        if papers:
+            # Generate citations for papers
+            in_text_citations = create_in_text_citations(papers, citation_format)
+            references_section = generate_references_section(papers, citation_format)
+            
+            methods_used = []
+            paper_methods_analysis = analyze_paper_methodologies(papers)
+            for paper in papers[:10]:
+                title = paper.get('title', 'Unknown')
+                citation = in_text_citations.get(title, f"(Paper {len(methods_used)+1})")
+                methods_used.append(f"- {title} {citation}: {paper.get('summary', '')[:200]}...")
+            methodology_context = f"""
+**Methodologies observed in related literature:**
+{chr(10).join(methods_used)}
+
+{paper_methods_analysis}
+"""
+        
+        methodology_prompt = f"""
+As a research methodology expert, provide comprehensive methodology guidance for this research question: "{research_question}"
+
+Research Type: {research_type.title()}
+Citation Format: {citation_format.upper()}
+
+{methodology_context}
+
+**METHODOLOGY ANALYSIS & RECOMMENDATIONS:**
+**Note: Include proper {citation_format.upper()} citations when referencing the literature above.**
+
+**1. RESEARCH DESIGN FRAMEWORK**
+- Appropriate research paradigm (positivist, interpretivist, pragmatic)
+- Research design type (experimental, quasi-experimental, descriptive, exploratory)
+- Justification for chosen design
+- Alternative designs and their trade-offs
+
+**2. QUANTITATIVE APPROACHES**
+- Experimental designs (RCT, factorial, crossover)
+- Survey methodologies (cross-sectional, longitudinal)
+- Observational studies (cohort, case-control)
+- Statistical analysis methods required
+- Sample size calculations and power analysis
+
+**3. QUALITATIVE APPROACHES**
+- Interview methodologies (structured, semi-structured, unstructured)
+- Focus group designs
+- Ethnographic approaches
+- Case study methodologies
+- Grounded theory applications
+- Phenomenological approaches
+
+**4. MIXED-METHODS DESIGNS**
+- Sequential explanatory design
+- Sequential exploratory design
+- Concurrent triangulation
+- Concurrent embedded design
+- Integration strategies
+
+**5. DATA COLLECTION STRATEGIES**
+- Primary data collection methods
+- Secondary data sources
+- Instrument development and validation
+- Pilot study recommendations
+- Data quality assurance measures
+
+**6. SAMPLING METHODOLOGY**
+- Target population definition
+- Sampling frame considerations
+- Probability sampling methods
+- Non-probability sampling approaches
+- Sample size justification
+- Recruitment strategies
+
+**7. DATA ANALYSIS PLAN**
+- Descriptive analysis approach
+- Inferential statistical methods
+- Qualitative analysis techniques (thematic, content, narrative)
+- Software recommendations (R, SPSS, NVivo, Atlas.ti)
+- Validity and reliability measures
+
+**8. ETHICAL CONSIDERATIONS**
+- IRB/Ethics approval requirements
+- Informed consent procedures
+- Data privacy and confidentiality
+- Risk assessment and mitigation
+- Vulnerable population considerations
+
+**9. VALIDITY & RELIABILITY**
+- Internal validity threats and controls
+- External validity considerations
+- Construct validity measures
+- Reliability assessment methods
+- Triangulation strategies
+
+**10. IMPLEMENTATION TIMELINE**
+- Phase-by-phase methodology timeline
+- Resource requirements
+- Potential challenges and solutions
+- Quality checkpoints
+- Contingency planning
+
+**11. INNOVATIVE METHODOLOGICAL APPROACHES**
+- Digital and computational methods
+- Big data analytics approaches
+- Machine learning applications
+- Crowdsourcing methodologies
+- Virtual and remote data collection
+
+**12. REPORTING AND DISSEMINATION**
+- Reporting standards (CONSORT, STROBE, COREQ)
+- Publication strategy
+- Data sharing protocols
+- Replication considerations
+
+Provide specific, actionable methodology recommendations with justifications for each choice.
+"""
+        
+        analysis = query_gemini(methodology_prompt)
+        
+        # If AI failed, generate structured methodology analysis
+        if not analysis or "basic analysis generated without AI" in analysis:
+            analysis = generate_structured_methodology_analysis(research_question, research_type, papers, paper_methods_analysis, citation_format, in_text_citations)
+        
+        # Always append references section if papers were provided
+        if papers and not "## REFERENCES" in analysis and not "# REFERENCES" in analysis:
+            analysis += f"\n\n{references_section}"
+        
+        return jsonify({
+            "success": True,
+            "methodology_analysis": analysis,
+            "research_question": research_question,
+            "research_type": research_type,
+            "citation_format": citation_format,
+            "paper_methods_context": paper_methods_analysis,
+            "references": references_section if papers else None
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in methodology analysis: {str(e)}")
+        return jsonify({"error": "Failed to generate methodology analysis"}), 500
+
+def analyze_paper_methodologies(papers):
+    """Analyze methodological approaches in the provided papers"""
+    if not papers:
+        return "No papers provided for methodology analysis."
+    
+    # Keywords for different methodological approaches
+    quant_keywords = ['experiment', 'statistical', 'quantitative', 'survey', 'regression', 'correlation', 'analysis', 'data', 'sample']
+    qual_keywords = ['qualitative', 'interview', 'case study', 'ethnographic', 'phenomenological', 'grounded theory']
+    mixed_keywords = ['mixed methods', 'mixed-methods', 'triangulation', 'sequential', 'concurrent']
+    theory_keywords = ['theoretical', 'framework', 'model', 'conceptual', 'theory']
+    
+    method_counts = {
+        'quantitative': 0,
+        'qualitative': 0,
+        'mixed_methods': 0,
+        'theoretical': 0,
+        'computational': 0,
+        'experimental': 0,
+        'survey': 0,
+        'case_study': 0
+    }
+    
+    for paper in papers:
+        summary = paper.get('summary', '').lower()
+        title = paper.get('title', '').lower()
+        text = summary + ' ' + title
+        
+        if any(keyword in text for keyword in quant_keywords):
+            method_counts['quantitative'] += 1
+        if any(keyword in text for keyword in qual_keywords):
+            method_counts['qualitative'] += 1
+        if any(keyword in text for keyword in mixed_keywords):
+            method_counts['mixed_methods'] += 1
+        if any(keyword in text for keyword in theory_keywords):
+            method_counts['theoretical'] += 1
+        if any(keyword in text for keyword in ['computational', 'algorithm', 'simulation', 'model']):
+            method_counts['computational'] += 1
+        if any(keyword in text for keyword in ['experiment', 'empirical', 'study']):
+            method_counts['experimental'] += 1
+        if any(keyword in text for keyword in ['survey', 'questionnaire']):
+            method_counts['survey'] += 1
+        if any(keyword in text for keyword in ['case study', 'case-study']):
+            method_counts['case_study'] += 1
+    
+    total_papers = len(papers)
+    analysis = f"""
+**METHODOLOGICAL ANALYSIS OF {total_papers} PAPERS**
+
+**Methodological Distribution:**
+- Quantitative approaches: {method_counts['quantitative']} papers ({method_counts['quantitative']/total_papers*100:.1f}%)
+- Qualitative approaches: {method_counts['qualitative']} papers ({method_counts['qualitative']/total_papers*100:.1f}%)
+- Mixed methods: {method_counts['mixed_methods']} papers ({method_counts['mixed_methods']/total_papers*100:.1f}%)
+- Theoretical papers: {method_counts['theoretical']} papers ({method_counts['theoretical']/total_papers*100:.1f}%)
+- Computational methods: {method_counts['computational']} papers ({method_counts['computational']/total_papers*100:.1f}%)
+
+**Specific Method Indicators:**
+- Experimental studies: {method_counts['experimental']} papers
+- Survey-based research: {method_counts['survey']} papers  
+- Case study approaches: {method_counts['case_study']} papers
+
+**Methodological Trends:**
+- Predominant approach: {"Quantitative" if method_counts['quantitative'] >= method_counts['qualitative'] else "Qualitative"}
+- Computational integration: {"High" if method_counts['computational'] > total_papers*0.3 else "Moderate" if method_counts['computational'] > total_papers*0.1 else "Low"}
+- Theoretical foundation: {"Strong" if method_counts['theoretical'] > total_papers*0.4 else "Moderate" if method_counts['theoretical'] > total_papers*0.2 else "Limited"}
+"""
+    
+    return analysis
+
+def generate_structured_methodology_analysis(research_question, research_type, papers, paper_methods_analysis, citation_format="apa", in_text_citations=None):
+    """Generate structured methodology analysis without AI"""
+    
+    # Generate citations if not provided
+    if papers and not in_text_citations:
+        in_text_citations = create_in_text_citations(papers, citation_format)
+    
+    analysis = f"""
+# METHODOLOGY ANALYSIS & RECOMMENDATIONS
+
+**Research Question:** {research_question}
+**Research Type:** {research_type.title()}
+**Citation Format:** {citation_format.upper()}
+
+{paper_methods_analysis if paper_methods_analysis else ""}
+
+## 1. RESEARCH DESIGN FRAMEWORK
+
+### Recommended Research Paradigm
+For {research_type} research on "{research_question}":
+
+**Primary Paradigm:** {"Positivist" if research_type == "empirical" else "Interpretivist" if research_type == "theoretical" else "Pragmatic"}
+
+**Justification:**
+- {research_type.title()} research typically benefits from {"quantitative, hypothesis-testing approaches" if research_type == "empirical" else "qualitative, meaning-making approaches" if research_type == "theoretical" else "mixed-methods, problem-solving approaches"}
+- The research question suggests {"causal relationships" if research_type == "empirical" else "conceptual understanding" if research_type == "theoretical" else "practical solutions"}
+
+### Research Design Type
+**Recommended Design:** {"Experimental or Quasi-experimental" if research_type == "empirical" else "Descriptive or Exploratory" if research_type == "theoretical" else "Applied or Action Research"}
+
+## 2. QUANTITATIVE APPROACHES
+
+### Experimental Designs
+- **Randomized Controlled Trial (RCT)**: If feasible and ethical
+- **Quasi-experimental Design**: When randomization is not possible
+- **Factorial Design**: For multiple variables
+- **Crossover Design**: For repeated measures
+
+### Survey Methodologies
+- **Cross-sectional Survey**: For snapshot data
+- **Longitudinal Survey**: For change over time
+- **Panel Study**: For tracking same participants
+
+### Statistical Analysis Methods
+- **Descriptive Statistics**: Mean, median, standard deviation
+- **Inferential Statistics**: t-tests, ANOVA, regression analysis
+- **Advanced Methods**: Structural equation modeling, multilevel analysis
+
+## 3. QUALITATIVE APPROACHES
+
+### Interview Methodologies
+- **Structured Interviews**: For standardized data collection
+- **Semi-structured Interviews**: For flexibility with consistency
+- **Unstructured Interviews**: For exploratory research
+
+### Other Qualitative Methods
+- **Focus Groups**: For group dynamics and consensus
+- **Ethnographic Observation**: For cultural understanding
+- **Case Study Methodology**: For in-depth analysis
+- **Grounded Theory**: For theory development
+- **Phenomenological Approach**: For lived experiences
+
+## 4. MIXED-METHODS DESIGNS
+
+### Sequential Designs
+- **Sequential Explanatory**: Quantitative followed by qualitative
+- **Sequential Exploratory**: Qualitative followed by quantitative
+
+### Concurrent Designs
+- **Concurrent Triangulation**: Simultaneous data collection
+- **Concurrent Embedded**: One method embedded in another
+
+## 5. DATA COLLECTION STRATEGIES
+
+### Primary Data Collection
+- **Surveys and Questionnaires**: For standardized data
+- **Interviews**: For in-depth insights
+- **Observations**: For behavioral data
+- **Experiments**: For causal relationships
+
+### Secondary Data Sources
+- **Existing Datasets**: For large-scale analysis
+- **Literature Reviews**: For theoretical foundation
+- **Archival Records**: For historical perspective
+
+### Instrument Development
+- **Questionnaire Design**: Clear, unbiased questions
+- **Interview Guides**: Structured yet flexible
+- **Observation Protocols**: Systematic recording methods
+
+## 6. SAMPLING METHODOLOGY
+
+### Target Population
+Define your population clearly based on:
+- **Inclusion Criteria**: Who should be included
+- **Exclusion Criteria**: Who should be excluded
+- **Accessibility**: Practical considerations
+
+### Sampling Methods
+**Probability Sampling:**
+- Simple Random Sampling
+- Stratified Random Sampling
+- Cluster Sampling
+
+**Non-probability Sampling:**
+- Convenience Sampling
+- Purposive Sampling
+- Snowball Sampling
+
+### Sample Size Considerations
+- **Power Analysis**: For statistical significance
+- **Saturation Point**: For qualitative research
+- **Resource Constraints**: Practical limitations
+
+## 7. DATA ANALYSIS PLAN
+
+### Quantitative Analysis
+- **Descriptive Analysis**: Frequencies, means, distributions
+- **Inferential Analysis**: Hypothesis testing, confidence intervals
+- **Software**: R, SPSS, SAS, Stata
+
+### Qualitative Analysis
+- **Thematic Analysis**: Identifying patterns and themes
+- **Content Analysis**: Systematic categorization
+- **Narrative Analysis**: Story-based interpretation
+- **Software**: NVivo, Atlas.ti, MAXQDA
+
+## 8. ETHICAL CONSIDERATIONS
+
+### IRB/Ethics Approval
+- **Institutional Review**: Required for human subjects research
+- **Risk Assessment**: Minimal, moderate, or high risk
+- **Special Populations**: Additional protections needed
+
+### Informed Consent
+- **Consent Process**: Clear explanation of study
+- **Voluntary Participation**: Right to withdraw
+- **Confidentiality**: Data protection measures
+
+## 9. VALIDITY & RELIABILITY
+
+### Internal Validity
+- **Control for Confounding**: Design and statistical controls
+- **Randomization**: When possible
+- **Blinding**: To reduce bias
+
+### External Validity
+- **Generalizability**: To broader populations
+- **Ecological Validity**: Real-world applicability
+
+### Reliability
+- **Test-retest Reliability**: Consistency over time
+- **Inter-rater Reliability**: Agreement between observers
+- **Internal Consistency**: Cronbach's alpha for scales
+
+## 10. IMPLEMENTATION TIMELINE
+
+### Phase 1: Preparation (Months 1-2)
+- Literature review completion
+- Methodology finalization
+- Ethics approval
+- Instrument development
+
+### Phase 2: Data Collection (Months 3-8)
+- Pilot study
+- Main data collection
+- Quality assurance monitoring
+
+### Phase 3: Analysis (Months 9-11)
+- Data cleaning and preparation
+- Statistical/qualitative analysis
+- Results interpretation
+
+### Phase 4: Dissemination (Month 12+)
+- Report writing
+- Publication preparation
+- Conference presentations
+
+## 11. INNOVATIVE METHODOLOGICAL APPROACHES
+
+### Digital Methods
+- **Online Surveys**: Broader reach, cost-effective
+- **Social Media Analysis**: Real-time data
+- **Mobile Data Collection**: Convenient and accessible
+
+### Computational Approaches
+- **Big Data Analytics**: Large dataset analysis
+- **Machine Learning**: Pattern recognition
+- **Text Mining**: Automated content analysis
+
+## 12. REPORTING AND DISSEMINATION
+
+### Reporting Standards
+- **CONSORT**: For randomized trials
+- **STROBE**: For observational studies
+- **COREQ**: For qualitative research
+- **PRISMA**: For systematic reviews
+
+### Publication Strategy
+- **Target Journals**: Identify appropriate venues
+- **Open Access**: Consider accessibility
+- **Data Sharing**: Follow discipline standards
+
+---
+
+**Note:** This methodology analysis was generated using structured analytical frameworks. For enhanced AI-powered recommendations and deeper methodological insights, configure the Gemini API key in your environment settings.
+
+**Research Question:** {research_question}
+**Research Type:** {research_type.title()}
+**Citation Format:** {citation_format.upper()}
+**Analysis Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+"""
+    
+    # Add references section if papers were provided
+    if papers:
+        references_section = generate_references_section(papers, citation_format)
+        analysis += f"\n\n{references_section}"
+    
+    return analysis
+
+# Sci-Hub API routes
+@app.route("/api/scihub/paper-by-doi", methods=["POST"])
+def get_paper_by_doi():
+    """Get paper from Sci-Hub using DOI"""
+    try:
+        data = request.json
+        doi = data.get("doi", "").strip()
+        
+        if not doi:
+            return jsonify({"error": "DOI is required"}), 400
+        
+        logger.info(f"Searching Sci-Hub for DOI: {doi}")
+        paper_data = scihub_api.get_paper_by_doi(doi)
+        
+        if paper_data:
+            return jsonify({
+                "success": True,
+                "paper": paper_data,
+                "message": "Paper found on Sci-Hub"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Paper not found on Sci-Hub"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error getting paper by DOI: {str(e)}")
+        return jsonify({"error": "Failed to search Sci-Hub"}), 500
+
+@app.route("/api/scihub/paper-by-title", methods=["POST"])
+def search_paper_by_title():
+    """Search paper on Sci-Hub by title"""
+    try:
+        data = request.json
+        title = data.get("title", "").strip()
+        
+        if not title:
+            return jsonify({"error": "Title is required"}), 400
+        
+        logger.info(f"Searching Sci-Hub for title: {title[:50]}...")
+        paper_data = scihub_api.search_paper_by_title(title)
+        
+        if paper_data:
+            return jsonify({
+                "success": True,
+                "paper": paper_data,
+                "message": "Paper found on Sci-Hub"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Paper not found on Sci-Hub"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error searching paper by title: {str(e)}")
+        return jsonify({"error": "Failed to search Sci-Hub"}), 500
+
+@app.route("/api/scihub/download-paper", methods=["POST"])
+def download_paper_from_scihub():
+    """Download paper PDF from Sci-Hub"""
+    try:
+        data = request.json
+        pdf_url = data.get("pdf_url", "").strip()
+        filename = data.get("filename", "paper.pdf")
+        
+        if not pdf_url:
+            return jsonify({"error": "PDF URL is required"}), 400
+        
+        logger.info(f"Downloading paper from Sci-Hub: {pdf_url}")
+        pdf_content = scihub_api.download_paper(pdf_url)
+        
+        if pdf_content:
+            response = make_response(pdf_content)
+            response.headers['Content-Type'] = 'application/pdf'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to download paper"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error downloading paper: {str(e)}")
+        return jsonify({"error": "Failed to download paper"}), 500
+
+@app.route("/api/scihub/mirror-status", methods=["GET"])
+def get_scihub_mirror_status():
+    """Get status of Sci-Hub mirrors"""
+    try:
+        mirror_status = scihub_api.get_mirror_status()
+        
+        return jsonify({
+            "success": True,
+            "mirrors": mirror_status,
+            "active_mirror": scihub_api.active_mirror
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting mirror status: {str(e)}")
+        return jsonify({"error": "Failed to get mirror status"}), 500
+
+@app.route('/api/trending-topics', methods=['GET'])
+def trending_topics():
+    """Get trending research topics from recent arXiv papers"""
+    try:
+        # Search for recent papers in popular categories
+        categories = ['cs.AI', 'cs.LG', 'cs.CL', 'physics', 'math', 'q-bio']
+        trending = []
+        
+        for category in categories:
+            try:
+                papers = query_arxiv(f"cat:{category}", max_results=5, sort_by=arxiv.SortCriterion.SubmittedDate)
+                if papers:
+                    trending.append({
+                        "category": category,
+                        "papers": papers[:3]  # Top 3 recent papers
+                    })
+            except:
+                    continue
+        
+        return jsonify({
+            "success": True,
+            "trending": trending
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting trending topics: {str(e)}")
+        return jsonify({"error": "Failed to get trending topics"}), 500
+
+@app.route('/api/generate-draft', methods=['POST'])
+def generate_academic_draft():
+    """Generate a complete academic project draft"""
+    try:
+        data = request.json
+        research_title = data.get("research_title", "")
+        research_question = data.get("research_question", "")
+        research_field = data.get("research_field", "")
+        research_type = data.get("research_type", "empirical")  # empirical, theoretical, applied
+        papers = data.get("papers", [])
+        citation_format = data.get("citation_format", "apa")
+        include_sections = data.get("include_sections", {
+            "introduction": True,
+            "literature_review": True,
+            "methodology": True,
+            "conclusion": True,
+            "future_works": True
+        })
+        
+        if not research_title or not research_question:
+            return jsonify({"error": "Research title and question are required"}), 400
+        
+        # Generate in-text citations and references
+        in_text_citations = create_in_text_citations(papers, citation_format) if papers else {}
+        references_section = generate_references_section(papers, citation_format) if papers else ""
+        
+        # Prepare paper context
+        papers_context = ""
+        if papers:
+            papers_detail = []
+            for i, paper in enumerate(papers[:15]):  # Limit to top 15 papers
+                title = paper.get('title', 'Unknown Title')
+                citation = in_text_citations.get(title, f"(Paper {i+1})")
+                papers_detail.append(f"""
+Paper {i+1}: {paper.get('title', 'Unknown Title')} {citation}
+Authors: {paper.get('authors', 'Unknown')}
+Year: {paper.get('published_year', 'Unknown')}
+Abstract: {paper.get('summary', 'No abstract available')[:300]}...
+Categories: {', '.join(paper.get('categories', []))}
+""")
+            papers_context = "\n".join(papers_detail)
+        
+        # Generate the complete draft
+        draft_prompt = f"""
+As an expert academic writer, create a complete research project draft with the following specifications:
+
+**Research Title**: {research_title}
+**Research Question**: {research_question}
+**Research Field**: {research_field}
+**Research Type**: {research_type}
+**Citation Format**: {citation_format.upper()}
+
+**Available Papers for Reference:**
+{papers_context}
+
+**Instructions:**
+- Write in formal academic style
+- Use proper {citation_format.upper()} citations throughout
+- Include specific examples and evidence from the provided papers
+- Maintain logical flow between sections
+- Ensure each section is substantial and well-developed
+- Use appropriate academic vocabulary and terminology
+
+**Create the following sections:**
+
+**1. INTRODUCTION** (if requested)
+- Background and context of the research problem
+- Problem statement and research gap identification
+- Research objectives and questions
+- Significance and contribution of the study
+- Scope and limitations
+- Structure overview of the paper
+
+**2. LITERATURE REVIEW** (if requested)
+- Comprehensive review of existing research
+- Theoretical foundations
+- Key findings from previous studies
+- Research gaps and contradictions
+- Synthesis of current knowledge
+- Position of current research in the field
+
+**3. METHODOLOGY** (if requested)
+- Research design and approach
+- Data collection methods
+- Sample selection and size
+- Data analysis techniques
+- Validity and reliability measures
+- Ethical considerations
+- Limitations of the methodology
+
+**4. CONCLUSION** (if requested)
+- Summary of key findings
+- Implications for theory and practice
+- Contribution to the field
+- Limitations of the study
+- Recommendations
+
+**5. FUTURE WORKS** (if requested)
+- Potential research directions
+- Methodological improvements
+- Expanded scope possibilities
+- Interdisciplinary opportunities
+- Practical applications
+- Long-term research agenda
+
+**Format Requirements:**
+- Use markdown formatting for headers and emphasis
+- Include proper {citation_format.upper()} citations
+- Write each section as a complete, coherent unit
+- Aim for academic rigor and clarity
+- Include transition sentences between major points
+
+Generate a comprehensive academic draft that demonstrates deep understanding of the research area.
+"""
+        
+        # Query AI for draft generation
+        draft_content = query_gemini(draft_prompt, papers_context)
+        
+        # If AI is unavailable, generate a structured template
+        if not draft_content or "I don't have access" in draft_content:
+            draft_content = generate_draft_template(
+                research_title, research_question, research_field, 
+                research_type, papers, citation_format, include_sections
+            )
+        
+        # Append references section if papers are available
+        if papers and references_section:
+            draft_content += f"\n\n## REFERENCES\n\n{references_section}"
+        
+        return jsonify({
+            "success": True,
+            "draft": draft_content,
+            "research_title": research_title,
+            "research_question": research_question,
+            "research_field": research_field,
+            "research_type": research_type,
+            "citation_format": citation_format,
+            "sections_included": include_sections,
+            "papers_count": len(papers),
+            "references": references_section,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Draft generation error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": f"Failed to generate draft: {str(e)}"
+        }), 500
+
+def generate_draft_template(research_title, research_question, research_field, research_type, papers, citation_format, include_sections):
+    """Generate a structured draft template when AI is unavailable"""
+    template_sections = []
+    
+    if include_sections.get("introduction", True):
+        template_sections.append(f"""
+## 1. INTRODUCTION
+
+### Background and Context
+The field of {research_field} has witnessed significant developments in recent years. This research addresses the critical question: "{research_question}"
+
+### Problem Statement
+[Describe the specific problem or gap in knowledge that your research addresses]
+
+### Research Objectives
+The primary objective of this study is to investigate {research_question.lower()}. Specifically, this research aims to:
+- [Objective 1]
+- [Objective 2]
+- [Objective 3]
+
+### Significance of the Study
+This research contributes to {research_field} by providing insights into [specific contribution].
+
+### Scope and Limitations
+This study focuses on [scope definition] while acknowledging limitations in [limitation areas].
+""")
+    
+    if include_sections.get("literature_review", True):
+        template_sections.append(f"""
+## 2. LITERATURE REVIEW
+
+### Theoretical Foundation
+The theoretical framework for this study draws from [relevant theories in {research_field}].
+
+### Previous Research
+{"Recent studies have explored various aspects of this field:" if papers else "Key research in this area includes:"}
+{chr(10).join([f"- {paper.get('title', 'Unknown')} ({paper.get('published_year', 'Unknown')})" for paper in papers[:10]]) if papers else "- [Key study 1]" + chr(10) + "- [Key study 2]" + chr(10) + "- [Key study 3]"}
+
+### Research Gaps
+Despite extensive research, several gaps remain:
+- [Gap 1]
+- [Gap 2]
+- [Gap 3]
+
+### Synthesis
+The literature reveals that {research_question.lower()} remains an important area for investigation.
+""")
+    
+    if include_sections.get("methodology", True):
+        approach_desc = {
+            "empirical": "This study employs an empirical approach using quantitative/qualitative data collection and analysis.",
+            "theoretical": "This research adopts a theoretical approach, developing conceptual frameworks and models.",
+            "applied": "This study uses an applied research approach, focusing on practical solutions and implementations."
+        }.get(research_type, "This study employs a mixed-methods approach.")
+        
+        template_sections.append(f"""
+## 3. METHODOLOGY
+
+### Research Design
+{approach_desc}
+
+### Data Collection
+[Describe your data collection methods, instruments, and procedures]
+
+### Sample Selection
+[Detail your sampling strategy and sample characteristics]
+
+### Data Analysis
+[Explain your analytical approach and techniques]
+
+### Validity and Reliability
+[Discuss measures to ensure research quality]
+
+### Ethical Considerations
+[Address ethical aspects of the research]
+""")
+    
+    if include_sections.get("conclusion", True):
+        template_sections.append(f"""
+## 4. CONCLUSION
+
+### Key Findings
+This research on "{research_question}" has revealed several important insights:
+- [Finding 1]
+- [Finding 2]
+- [Finding 3]
+
+### Theoretical Implications
+The findings contribute to {research_field} theory by [theoretical contribution].
+
+### Practical Implications
+The results have practical applications in [practical applications].
+
+### Limitations
+This study acknowledges limitations in [limitation areas].
+
+### Recommendations
+Based on the findings, the following recommendations are proposed:
+- [Recommendation 1]
+- [Recommendation 2]
+- [Recommendation 3]
+""")
+    
+    if include_sections.get("future_works", True):
+        template_sections.append(f"""
+## 5. FUTURE WORKS
+
+### Research Directions
+Future research in {research_field} should explore:
+- [Direction 1]: Expanding the scope to include [specific area]
+- [Direction 2]: Investigating the relationship between [variables]
+- [Direction 3]: Developing new methodological approaches
+
+### Methodological Improvements
+- Enhanced data collection techniques
+- Longitudinal study designs
+- Cross-cultural validation
+
+### Interdisciplinary Opportunities
+- Collaboration with [related field 1]
+- Integration with [related field 2]
+- Application in [practical domain]
+
+### Long-term Vision
+The ultimate goal is to develop a comprehensive understanding of {research_question.lower()} that can inform both theory and practice in {research_field}.
+""")
+    
+    return "\n".join(template_sections)
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "scihub": scihub_api.active_mirror is not None,
+            "gemini": os.getenv("GEMINI_API_KEY") is not None
+        }
     })
-    
-    if not reset_record:
-        flash('Password reset link is invalid or has expired')
-        return redirect(url_for('forgot_password'))
-    
-    if request.method == 'POST':
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-        
-        if not password or not confirm_password:
-            return render_template('reset_password.html', token=token, error='Both fields are required')
-            
-        if password != confirm_password:
-            return render_template('reset_password.html', token=token, error='Passwords do not match')
-            
-        if len(password) < 8:
-            return render_template('reset_password.html', token=token, error='Password must be at least 8 characters')
-            
-        # Update user's password
-        user = mongo.db.users.find_one({'email': reset_record['email']})
-        
-        if not user:
-            return render_template('reset_password.html', token=token, error='User not found')
-            
-        # Hash new password
-        password_hash = generate_password_hash(password, method='pbkdf2:sha256')
-        
-        # Update user record
-        mongo.db.users.update_one(
-            {'_id': user['_id']},
-            {'$set': {'password_hash': password_hash}}
-        )
-        
-        # Remove used token
-        mongo.db.password_resets.delete_one({'token': token})
-        
-        # Redirect to login page with success message
-        flash('Your password has been updated successfully. You can now log in with your new password.')
-        return redirect(url_for('login'))
-        
-    return render_template('reset_password.html', token=token)
-
-@app.route("/login/email", methods=["POST"])
-def email_login():
-    if current_user.is_authenticated:
-        return redirect(url_for('profile'))
-    
-    email_or_username = request.form.get('email_or_username')
-    password = request.form.get('password')
-    
-    if not email_or_username or not password:
-        return redirect(url_for('login', error='Email/username and password are required'))
-        
-    try:
-        # Find user by email or username
-        user_data = mongo.db.users.find_one({
-            '$or': [
-                {'email': email_or_username},
-                {'username': email_or_username}
-            ],
-            'provider': 'local'
-        })
-        
-        if user_data and check_password_hash(user_data.get('password_hash', ''), password):
-            user = User(user_data)
-            login_user(user)
-            
-            # Update last login timestamp
-            mongo.db.users.update_one(
-                {'_id': user_data['_id']},
-                {'$set': {'last_login': datetime.utcnow()}}
-            )
-            
-            # Get next parameter or default to profile
-            next_page = request.args.get('next', 'profile')
-            return redirect(url_for(next_page))
-        else:
-            return redirect(url_for('login', error='Invalid email/username or password'))
-    except Exception as e:
-        print(f"Error during email login: {str(e)}")
-        return redirect(url_for('login', error='An error occurred. Please try again later.'))
-
-@app.route("/account/update-preferences", methods=["POST"])
-@login_required
-def update_preferences():
-    try:
-        data = request.form
-        preference_type = data.get("preference_type")
-        preferences = {}
-        
-        # Theme preferences
-        if preference_type == "theme":
-            preferences = {
-                "theme_mode": data.get("theme_mode", "light"),
-                "accent_color": data.get("accent_color", "#007bff"),
-                "font_size": data.get("font_size", "medium")
-            }
-        
-        # Search preferences
-        elif preference_type == "search":
-            preferences = {
-                "default_search_type": data.get("default_search_type", "quick"),
-                "results_per_page": int(data.get("results_per_page", 5)),
-                "auto_save_searches": "auto_save_searches" in data
-            }
-        
-        # Privacy preferences
-        elif preference_type == "privacy":
-            preferences = {
-                "history_retention": int(data.get("history_retention", 90)),
-                "allow_recommendations": "allow_recommendations" in data,
-                "share_usage_data": "share_usage_data" in data
-            }
-        
-        # Notification preferences
-        elif preference_type == "notifications":
-            preferences = {
-                "email_new_recommendations": "email_new_recommendations" in data,
-                "email_security_alerts": "email_security_alerts" in data,
-                "email_product_updates": "email_product_updates" in data,
-                "notification_frequency": data.get("notification_frequency", "daily")
-            }
-        
-        # Update user preferences
-        if preferences:
-            # Namespace the preferences under their type
-            namespaced_prefs = {
-                preference_type: preferences
-            }
-            
-            success, message = current_user.update_profile(
-                mongo.db,
-                preferences=namespaced_prefs
-            )
-            
-            if success:
-                flash(f"Your {preference_type} preferences have been updated", "success")
-            else:
-                flash(message, "error")
-        
-        return redirect(url_for("account_settings"))
-        
-    except Exception as e:
-        print(f"Error updating preferences: {e}")
-        flash("An error occurred while updating your preferences", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/account/toggle-2fa", methods=["POST"])
-@login_required
-def toggle_two_factor():
-    try:
-        data = request.json
-        enabled = data.get("enabled", False)
-        
-        # Update preferences
-        preferences = {
-            "security": {
-                "two_factor_enabled": enabled
-            }
-        }
-        
-        success, message = current_user.update_profile(
-            mongo.db,
-            preferences=preferences
-        )
-        
-        if success:
-            return jsonify({
-                "success": True,
-                "message": "Two-factor authentication " + ("enabled" if enabled else "disabled")
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": message
-            }), 400
-            
-    except Exception as e:
-        print(f"Error toggling 2FA: {e}")
-        return jsonify({
-            "success": False,
-            "message": "An error occurred while updating two-factor authentication"
-        }), 500
-
-@app.route("/account/setup-2fa", methods=["GET"])
-@login_required
-def setup_two_factor():
-    # In a real implementation, this would generate a QR code for the user's authenticator app
-    # For this demo, we'll just show a mock setup page
-    return render_template("setup_2fa.html", user=current_user)
-
-@app.route("/account/verify-2fa", methods=["POST"])
-@login_required
-def verify_two_factor():
-    try:
-        code = request.form.get("verification_code")
-        
-        # In a real implementation, this would verify the code against the user's 2FA secret
-        # For this demo, we'll just accept any 6-digit code
-        if code and len(code) == 6 and code.isdigit():
-            # Enable 2FA for the user
-            preferences = {
-                "security": {
-                    "two_factor_enabled": True,
-                    "two_factor_verified": True
-                }
-            }
-            
-            success, message = current_user.update_profile(
-                mongo.db,
-                preferences=preferences
-            )
-            
-            if success:
-                flash("Two-factor authentication has been enabled for your account", "success")
-            else:
-                flash(message, "error")
-        else:
-            flash("Invalid verification code. Please try again.", "error")
-            
-        return redirect(url_for("account_settings"))
-        
-    except Exception as e:
-        print(f"Error verifying 2FA: {e}")
-        flash("An error occurred while verifying two-factor authentication", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/account/logout-all-devices", methods=["POST"])
-@login_required
-def logout_all_devices():
-    try:
-        # Revoke all sessions for the current user
-        # In a real implementation, this would revoke all session tokens in the database
-        
-        # For this implementation, we'll generate a new session token for the current user
-        # which will invalidate all other sessions
-        current_user.session_token = str(uuid.uuid4())
-        success = mongo.db.users.update_one(
-            {"_id": current_user._id},
-            {"$set": {"session_token": current_user.session_token}}
-        ).modified_count > 0
-        
-        if success:
-            # Update the current session with the new token
-            session["session_token"] = current_user.session_token
-            return jsonify({
-                "success": True,
-                "message": "You have been logged out from all other devices"
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Failed to revoke sessions. Please try again."
-            }), 400
-            
-    except Exception as e:
-        print(f"Error logging out from all devices: {e}")
-        return jsonify({
-            "success": False,
-            "message": "An error occurred while logging out from all devices"
-        }), 500
-
-@app.route("/account/download-data")
-@login_required
-def download_user_data():
-    try:
-        # Get user data
-        user_data = {
-            "profile": {
-                "username": current_user.username,
-                "email": current_user.email,
-                "name": current_user.name,
-                "provider": current_user.provider,
-                "created_on": current_user.created_on.isoformat() if hasattr(current_user, 'created_on') and current_user.created_on else None,
-                "preferences": current_user.preferences
-            },
-            "search_history": [],
-            "favorites": []
-        }
-        
-        # Get search history
-        search_history = mongo.db.search_history.find({"user_id": current_user._id})
-        for item in search_history:
-            item.pop("_id", None)  # Remove ObjectId which is not JSON serializable
-            item.pop("user_id", None)  # Remove user ID reference
-            if "timestamp" in item and item["timestamp"]:
-                item["timestamp"] = item["timestamp"].isoformat()
-            user_data["search_history"].append(item)
-            
-        # Get favorites
-        favorites = mongo.db.favorites.find({"user_id": current_user._id})
-        for item in favorites:
-            item.pop("_id", None)
-            item.pop("user_id", None)
-            if "timestamp" in item and item["timestamp"]:
-                item["timestamp"] = item["timestamp"].isoformat()
-            user_data["favorites"].append(item)
-            
-        # If user has documents, include their metadata (not content)
-        documents = mongo.db.documents.find({"user_id": current_user._id})
-        if documents:
-            user_data["documents"] = []
-            for doc in documents:
-                doc.pop("_id", None)
-                doc.pop("user_id", None)
-                doc.pop("content", None)  # Don't include the actual content
-                if "uploaded_on" in doc and doc["uploaded_on"]:
-                    doc["uploaded_on"] = doc["uploaded_on"].isoformat()
-                user_data["documents"].append(doc)
-        
-        # Create a JSON file
-        json_data = json.dumps(user_data, indent=2)
-        
-        # Create response with download attachment
-        response = make_response(json_data)
-        response.headers["Content-Disposition"] = f"attachment; filename=sentino_data_{current_user.username}.json"
-        response.headers["Content-Type"] = "application/json"
-        
-        return response
-        
-    except Exception as e:
-        print(f"Error downloading user data: {e}")
-        flash("An error occurred while downloading your data", "error")
-        return redirect(url_for("account_settings"))
-
-@app.route("/api/academic/visualizations", methods=["POST"])
-def get_academic_visualizations():
-    """API endpoint to generate visualizations for academic papers"""
-    try:
-        data = request.json
-        papers = data.get("papers", [])
-        viz_type = data.get("type", "network")  # network, timeline, or authors
-        
-        if not papers:
-            return jsonify({"error": "No papers provided"}), 400
-            
-        # Ensure papers have necessary fields
-        for paper in papers:
-            if 'title' not in paper:
-                return jsonify({"error": "Paper missing title field"}), 400
-
-        if viz_type == "network":
-            figure = create_network_visualization(papers)
-            return jsonify({"visualization": "network", "data": figure.get('data', []), "layout": figure.get('layout', {})})
-        elif viz_type == "timeline":
-            figure = create_timeline_visualization(papers)
-            return jsonify({"visualization": "timeline", "data": figure.get('data', []), "layout": figure.get('layout', {})})
-        elif viz_type == "authors":
-            figure = create_author_visualization(papers)
-            return jsonify({"visualization": "authors", "data": figure.get('data', []), "layout": figure.get('layout', {})})
-        else:
-            return jsonify({"error": "Invalid visualization type"}), 400
-            
-    except Exception as e:
-        print(f"Visualization error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-def create_network_visualization(papers):
-    """Generate a citation network visualization using networkx and plotly"""
-    try:
-        import networkx as nx
-        import plotly.graph_objects as go
-        import random
-        
-        # Create a graph
-        G = nx.DiGraph()
-        
-        # Generate IDs for papers if not present
-        for i, paper in enumerate(papers):
-            if 'arxiv_id' not in paper:
-                paper['arxiv_id'] = f"paper-{i}"
-        
-        # Add nodes (papers)
-        for paper in papers:
-            # Use a shorter version of the title for display
-            short_title = paper['title'][:40] + "..." if len(paper['title']) > 40 else paper['title']
-            G.add_node(paper['arxiv_id'], title=short_title, year=paper.get('published_year'))
-        
-        # Simulate citation relationships for visualization
-        # In a real system, this would use actual citation data
-        paper_ids = [p['arxiv_id'] for p in papers]
-        for i, paper in enumerate(papers):
-            # Each paper has a chance to cite 1-3 other papers
-            num_citations = random.randint(1, min(3, len(papers)-1))
-            for _ in range(num_citations):
-                cited_id = random.choice(paper_ids)
-                if cited_id != paper['arxiv_id']:  # Don't self-cite
-                    G.add_edge(paper['arxiv_id'], cited_id)
-        
-        # Use a spring layout for the graph
-        pos = nx.spring_layout(G)
-        
-        # Create edges trace
-        edge_x = []
-        edge_y = []
-        for edge in G.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
-        
-        edge_trace = {
-            'x': edge_x, 
-            'y': edge_y,
-            'line': {'width': 1, 'color': '#888'},
-            'hoverinfo': 'none',
-            'mode': 'lines',
-            'type': 'scatter'
-        }
-        
-        # Create nodes trace
-        node_x = []
-        node_y = []
-        for node in G.nodes():
-            x, y = pos[node]
-            node_x.append(x)
-            node_y.append(y)
-        
-        # Customize node information for hover text
-        node_text = []
-        for node in G.nodes():
-            node_info = G.nodes[node]
-            citations = len([edge for edge in G.edges() if edge[1] == node])
-            references = len([edge for edge in G.edges() if edge[0] == node])
-            node_text.append(f"{node_info['title']}<br>Year: {node_info.get('year', 'Unknown')}<br>Citations: {citations}<br>References: {references}")
-        
-        # Get degree of each node for coloring
-        node_adjacencies = []
-        for node, adjacencies in enumerate(G.adjacency()):
-            node_adjacencies.append(len(adjacencies[1]))
-            
-        node_trace = {
-            'x': node_x, 
-            'y': node_y,
-            'mode': 'markers',
-            'hoverinfo': 'text',
-            'text': node_text,
-            'marker': {
-                'showscale': True,
-                'colorscale': 'YlGnBu',
-                'size': 10,
-                'color': node_adjacencies,
-                'colorbar': {
-                    'thickness': 15,
-                    'title': 'Node Connections',
-                    'xanchor': 'left',
-                    'titleside': 'right'
-                },
-                'line_width': 2
-            },
-            'type': 'scatter'
-        }
-        
-        # Create the figure
-        figure = {
-            'data': [edge_trace, node_trace],
-            'layout': {
-                'title': 'Paper Citation Network',
-                'showlegend': False,
-                'hovermode': 'closest',
-                'margin': {'b': 20, 'l': 5, 'r': 5, 't': 40},
-                'xaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False},
-                'yaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False}
-            }
-        }
-        
-        return figure
-        
-    except Exception as e:
-        print(f"Network visualization error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": f"Network visualization error: {str(e)}"}
-
-def create_timeline_visualization(papers):
-    """Generate a timeline visualization of papers using plotly"""
-    try:
-        import plotly.graph_objects as go
-        
-        # Prepare data for timeline
-        timeline_data = []
-        for paper in papers:
-            year = paper.get('published_year')
-            if not year and paper.get('published'):
-                # Try to extract year from date string
-                match = re.search(r'(\d{4})', paper['published'])
-                if match:
-                    year = int(match.group(1))
-            
-            if year:
-                timeline_data.append({
-                    'title': paper['title'],
-                    'year': year,
-                    'authors': paper['authors'],
-                    'id': paper.get('arxiv_id', 'unknown')
-                })
-        
-        # Sort by year
-        timeline_data = sorted(timeline_data, key=lambda x: x['year'])
-        
-        # Skip if no timeline data
-        if not timeline_data:
-            return {"error": "No papers with valid publication years"}
-        
-        # Add papers to timeline
-        years = [paper['year'] for paper in timeline_data]
-        # Create abbreviated titles for display
-        titles = [paper['title'][:20] + '...' if len(paper['title']) > 20 else paper['title'] for paper in timeline_data]
-        hover_texts = [f"Title: {paper['title']}<br>Year: {paper['year']}<br>Authors: {paper['authors']}" 
-                      for paper in timeline_data]
-        
-        # Create scatter plot for papers
-        scatter = {
-            'x': years,
-            'y': [1] * len(years),  # All points on same level
-            'mode': 'markers+text',
-            'marker': {'size': 15, 'color': 'royalblue'},
-            'text': titles,
-            'textposition': "top center",
-            'hoverinfo': 'text',
-            'hovertext': hover_texts,
-            'type': 'scatter'
-        }
-        
-        # Create the layout
-        layout = {
-            'title': "Research Timeline",
-            'xaxis': {
-                'title': "Year",
-                'showgrid': True,
-                'dtick': 1  # Show each year
-            },
-            'yaxis': {
-                'showticklabels': False,
-                'showgrid': False,
-                'zeroline': False
-            },
-            'showlegend': False,
-            'hovermode': 'closest'
-        }
-        
-        # Return the figure data
-        return {
-            'data': [scatter],
-            'layout': layout
-        }
-        
-    except Exception as e:
-        print(f"Timeline visualization error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": f"Timeline visualization error: {str(e)}"}
-
-def create_author_visualization(papers):
-    """Generate a network visualization of author collaborations using networkx and plotly"""
-    try:
-        import networkx as nx
-        import plotly.graph_objects as go
-        
-        # Create graph
-        G = nx.Graph()
-        
-        # Extract all unique authors
-        all_authors = {}
-        
-        # Add nodes (authors)
-        for paper in papers:
-            # Process author string or list
-            authors = []
-            if 'authors_list' in paper and paper['authors_list']:
-                authors = paper['authors_list']
-            elif 'authors' in paper:
-                # Split comma-separated authors
-                author_names = paper['authors'].split(',')
-                authors = [{'name': name.strip()} for name in author_names]
-            
-            # Skip if no authors
-            if not authors:
-                continue
-                
-            # Add each author as a node
-            for author in authors:
-                author_name = author.get('name', 'Unknown')
-                if author_name not in all_authors:
-                    all_authors[author_name] = []
-                all_authors[author_name].append(paper['title'])
-                G.add_node(author_name, papers=1)
-            
-            # Add edges between co-authors
-            for i, author1 in enumerate(authors):
-                author1_name = author1.get('name', 'Unknown')
-                for author2 in authors[i+1:]:
-                    author2_name = author2.get('name', 'Unknown')
-                    
-                    # Add edge or increment weight if it exists
-                    if G.has_edge(author1_name, author2_name):
-                        G[author1_name][author2_name]['weight'] += 1
-                    else:
-                        G.add_edge(author1_name, author2_name, weight=1)
-        
-        # Skip if no authors
-        if not G.nodes():
-            return {"error": "No authors found in papers"}
-        
-        # Use a spring layout for the graph
-        pos = nx.spring_layout(G)
-        
-        # Create edges trace
-        edge_x = []
-        edge_y = []
-        edge_text = []
-        
-        for edge in G.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
-            edge_text.append(f"Co-authored {G[edge[0]][edge[1]]['weight']} papers")
-        
-        edge_trace = {
-            'x': edge_x, 
-            'y': edge_y,
-            'line': {'width': 1, 'color': '#888'},
-            'hoverinfo': 'text',
-            'text': edge_text,
-            'mode': 'lines',
-            'type': 'scatter'
-        }
-        
-        # Create nodes trace
-        node_x = []
-        node_y = []
-        for node in G.nodes():
-            x, y = pos[node]
-            node_x.append(x)
-            node_y.append(y)
-        
-        # Customize node information for hover text
-        node_text = []
-        for node in G.nodes():
-            papers = all_authors.get(node, [])
-            paper_list = "<br>- ".join(papers[:3])
-            if len(papers) > 3:
-                paper_list += f"<br>...and {len(papers) - 3} more"
-            node_text.append(f"Author: {node}<br>Papers: {len(papers)}<br>- {paper_list}")
-        
-        # Get number of papers for each author for node size/color
-        node_papers = []
-        for node in G.nodes():
-            node_papers.append(len(all_authors.get(node, [])))
-            
-        node_trace = {
-            'x': node_x, 
-            'y': node_y,
-            'mode': 'markers',
-            'hoverinfo': 'text',
-            'text': node_text,
-            'marker': {
-                'showscale': True,
-                'colorscale': 'YlGnBu',
-                'size': 15,
-                'color': node_papers,
-                'colorbar': {
-                    'thickness': 15,
-                    'title': 'Number of Papers',
-                    'xanchor': 'left',
-                    'titleside': 'right'
-                },
-                'line_width': 2
-            },
-            'type': 'scatter'
-        }
-        
-        # Create the figure
-        figure = {
-            'data': [edge_trace, node_trace],
-            'layout': {
-                'title': 'Author Collaboration Network',
-                'showlegend': False,
-                'hovermode': 'closest',
-                'margin': {'b': 20, 'l': 5, 'r': 5, 't': 40},
-                'xaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False},
-                'yaxis': {'showgrid': False, 'zeroline': False, 'showticklabels': False}
-            }
-        }
-        
-        # Return the figure
-        return figure
-        
-    except Exception as e:
-        print(f"Author visualization error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": f"Author visualization error: {str(e)}"}
-
-# Add route to view specific search details
-@app.route("/api/history/<search_id>", methods=["GET"])
-@login_required
-def get_search_details(search_id):
-    try:
-        search = SearchHistory.get_search_by_id(mongo.db, search_id)
-        
-        if not search:
-            return jsonify({"error": "Search not found"}), 404
-            
-        # Verify the search belongs to the current user
-        if str(search.get("user_id")) != current_user.get_id():
-            return jsonify({"error": "Unauthorized access"}), 403
-            
-        # Convert ObjectId to string for JSON serialization
-        search["_id"] = str(search["_id"])
-        search["user_id"] = str(search["user_id"])
-        search["timestamp"] = search["timestamp"].isoformat()
-        
-        return jsonify({"search": search})
-        
-    except Exception as e:
-        print(f"Error getting search details: {e}")
-        return jsonify({"error": f"Error: {str(e)}"}), 500
-
-@app.route('/chat')
-@login_required
-def chat():
-    """Document chat interface where users can upload and chat about documents"""
-    return render_template('feature_disabled.html', 
-                          feature_name="AI Document Chat", 
-                          message="The document chat feature is temporarily disabled for maintenance.", 
-                          user_theme=session.get('theme', 'light'))
-
-@app.route('/set_theme', methods=['POST'])
-def set_theme():
-    """Set the user's theme preference"""
-    data = request.json
-    if data and 'theme' in data:
-        session['theme'] = data['theme']
-    return jsonify({"success": True})
-
-# API endpoints for document chat
-@app.route('/api/documents')
-@login_required
-def get_documents():
-    """Get all documents for the current user"""
-    return jsonify({
-        "success": False,
-        "message": "Document chat feature is temporarily disabled for maintenance."
-    }), 503
-
-@app.route('/api/documents/upload', methods=['POST'])
-@login_required
-def upload_chat_document():
-    """Upload a document for processing"""
-    return jsonify({
-        "success": False,
-        "message": "Document chat feature is temporarily disabled for maintenance."
-    }), 503
-
-@app.route('/api/documents/<document_id>', methods=['DELETE'])
-@login_required
-def delete_chat_document(document_id):
-    """Delete a document"""
-    return jsonify({
-        "success": False,
-        "message": "Document chat feature is temporarily disabled for maintenance."
-    }), 503
-
-@app.route('/api/chat/<document_id>', methods=['POST'])
-@login_required
-def chat_with_document(document_id):
-    """Chat with a document"""
-    return jsonify({
-        "success": False,
-        "message": "Document chat feature is temporarily disabled for maintenance."
-    }), 503
-
-@app.route('/api/chat/<document_id>/history')
-@login_required
-def get_chat_history(document_id):
-    """Get chat history for a document"""
-    return jsonify({
-        "success": False,
-        "message": "Document chat feature is temporarily disabled for maintenance."
-    }), 503
-
-def extract_text_from_pdf(filepath):
-    """Extract text from PDF file"""
-    try:
-        import PyPDF2
-        
-        text = ""
-        with open(filepath, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(reader.pages)):
-                page = reader.pages[page_num]
-                text += page.extract_text() + "\n"
-        
-        return text
-    except Exception as e:
-        app.logger.error(f"Error extracting text from PDF: {str(e)}")
-        raise e
-
-def extract_text_from_docx(filepath):
-    """Extract text from DOCX file"""
-    try:
-        import docx
-        
-        doc = docx.Document(filepath)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
-        
-        return text
-    except Exception as e:
-        app.logger.error(f"Error extracting text from DOCX: {str(e)}")
-        raise e
-
-def process_document_embeddings(document_id):
-    """Process document embeddings for vector search"""
-    try:
-        document = mongo.db.document_context.find_one({"_id": ObjectId(document_id)})
-        if not document:
-            app.logger.error(f"Document {document_id} not found for embedding processing")
-            return
-        
-        # In a real implementation, you would:
-        # 1. Split the document into chunks
-        # 2. Generate embeddings for each chunk
-        # 3. Store the embeddings in the database
-        
-        # For now, we'll just update the document to mark it as processed
-        mongo.db.document_context.update_one(
-            {"_id": ObjectId(document_id)},
-            {"$set": {"embedding_processed": True}}
-        )
-        
-        app.logger.info(f"Document {document_id} embeddings processed successfully")
-    
-    except Exception as e:
-        app.logger.error(f"Error processing document embeddings: {str(e)}")
-
-def generate_document_response(user_query, document_content):
-    """Generate AI response based on document content and user query"""
-    # In a real implementation, you would:
-    # 1. Use embeddings to find relevant chunks of the document
-    # 2. Pass the relevant chunks and user query to an LLM API
-    # 3. Return the LLM's response
-    
-    # For demo purposes, we'll just return a simple response
-    try:
-        # Simple keyword matching for demo
-        query_words = set(user_query.lower().split())
-        paragraphs = document_content.split('\n\n')
-        
-        # Find paragraphs that contain query words
-        relevant_paragraphs = []
-        for paragraph in paragraphs:
-            if len(paragraph.strip()) < 10:  # Skip very short paragraphs
-                continue
-                
-            paragraph_words = set(paragraph.lower().split())
-            intersection = query_words.intersection(paragraph_words)
-            
-            if intersection:
-                relevant_paragraphs.append({
-                    "text": paragraph,
-                    "relevance": len(intersection) / len(query_words)
-                })
-        
-        # Sort by relevance
-        relevant_paragraphs.sort(key=lambda x: x["relevance"], reverse=True)
-        
-        # If we found relevant paragraphs
-        if relevant_paragraphs:
-            top_paragraphs = relevant_paragraphs[:3]
-            context = "\n\n".join([p["text"] for p in top_paragraphs])
-            
-            response = f"Based on the document, I found the following information related to your query:\n\n{context}\n\nIs there anything specific about this you'd like me to explain further?"
-        else:
-            response = "I couldn't find information directly related to your query in this document. Could you please rephrase your question or ask about a different topic from the document?"
-        
-        return response
-        
-    except Exception as e:
-        app.logger.error(f"Error generating document response: {str(e)}")
-        return "I'm sorry, but I encountered an error while processing your query. Please try again later."
-
-@app.route("/api/methodology-filter", methods=["POST"])
-def filter_by_methodology():
-    """API endpoint to filter papers by methodology type"""
-    try:
-        data = request.json
-        papers = data.get("papers", [])
-        method_type = data.get("methodology_type", "all")
-        
-        if not papers:
-            return jsonify({"error": "No papers provided"}), 400
-        
-        # If filtering for all, just return all papers
-        if method_type == "all":
-            return jsonify({"papers": papers})
-        
-        # Filter papers by methodology type
-        filtered_papers = []
-        for paper in papers:
-            if "methodology" in paper and paper["methodology"]["primary_type"] == method_type:
-                filtered_papers.append(paper)
-        
-        # Generate methodology comparison for the filtered papers
-        methodology_comparison = compare_methodologies(filtered_papers)
-        
-        return jsonify({
-            "papers": filtered_papers,
-            "methodology_count": len(filtered_papers),
-            "methodology_comparison": methodology_comparison
-        })
-        
-    except Exception as e:
-        print(f"Error filtering papers by methodology: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-@app.route("/api/methodology-comparison", methods=["POST"])
-def get_methodology_comparison():
-    """API endpoint to get methodology comparison for a set of papers"""
-    try:
-        data = request.json
-        papers = data.get("papers", [])
-        
-        if not papers:
-            return jsonify({"error": "No papers provided"}), 400
-        
-        # Generate methodology comparison
-        comparison = compare_methodologies(papers)
-        
-        return jsonify({
-            "comparison": comparison
-        })
-        
-    except Exception as e:
-        print(f"Error generating methodology comparison: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-@app.route("/api/analyze-methodology", methods=["POST"])
-def handle_methodology_analysis():
-    """API endpoint to analyze methodology of a given text"""
-    try:
-        data = request.json
-        text = data.get("text")
-        
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
-            
-        # Analyze methodology
-        methodology_analysis = analyze_methodology(text)
-        
-        return jsonify({
-            "analysis": methodology_analysis,
-            "success": True
-        })
-        
-    except Exception as e:
-        print(f"Methodology analysis error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))
+    port = int(os.getenv("PORT", 5000))
+    print("🚀 Starting Sentino AI - Academic Research Platform")
+    print("📚 Features:")
+    print("   • Academic paper search (arXiv)")
+    print("   • Sci-Hub integration for paper access")
+    print("   • AI-powered paper analysis")
+    print("   • Research suggestions and insights")
+    print(f"🌐 Access the app at: http://localhost:{port}")
+    
+    # Initialize Sci-Hub on startup
+    try:
+        scihub_api.find_active_mirror()
+        print(f"✅ Sci-Hub integration ready (Mirror: {scihub_api.active_mirror})")
+    except:
+        print("⚠️  Sci-Hub integration may be limited")
+    
     app.run(host='0.0.0.0', debug=True, port=port)

@@ -125,7 +125,7 @@
     <!-- Academic Research View -->
     <div class="view-container" id="academic-view" style="display: none;">
       <h1>Academic Research</h1>
-      <p class="view-description">Get answers based on academic papers from arXiv with scholarly analysis.</p>
+      <p class="view-description">Search and access academic papers directly from Sci-Hub with instant PDF downloads.</p>
       
       <form id="academicForm" class="query-form">
         <div class="input-container">
@@ -140,6 +140,11 @@
               <option value="5">5</option>
               <option value="7">7</option>
             </select>
+          </label>
+          <label class="scihub-toggle">
+            <input type="checkbox" id="enableSciHub" checked>
+            <span class="scihub-label">🚀 Sci-Hub Primary Search</span>
+            <small class="scihub-hint">Search Sci-Hub directly for papers (replaces arXiv)</small>
           </label>
         </div>
       </form>
