@@ -42,6 +42,10 @@ class AcademicResearchApp {
         const maxResults = document.getElementById('maxResults').value;
         const sortBy = document.getElementById('sortBy').value;
         const includeScihub = document.getElementById('includeScihub').checked;
+        
+        // Get selected sources
+        const sourcesSelect = document.getElementById('sources');
+        const selectedSources = Array.from(sourcesSelect.selectedOptions).map(option => option.value);
 
         if (!query) {
             this.showError('Please enter a search query');
@@ -53,7 +57,7 @@ class AcademicResearchApp {
         const originalText = searchButton.innerHTML;
         searchButton.innerHTML = `
             <div class="loading-spinner"></div>
-            <span class="loading-text">Searching...</span>
+            <span class="loading-text">Searching ${selectedSources.length} sources...</span>
         `;
         searchButton.disabled = true;
 
@@ -70,7 +74,8 @@ class AcademicResearchApp {
                     query: query,
                     max_results: parseInt(maxResults),
                     sort_by: sortBy,
-                    include_scihub: includeScihub
+                    include_scihub: includeScihub,
+                    sources: selectedSources
                 })
             });
 
@@ -80,6 +85,7 @@ class AcademicResearchApp {
                 this.currentPapers = data.papers;
                 this.displayResults(data);
                 this.showResearchSuggestionsButton();
+                this.displaySourcesUsed(data.sources_used);
             } else {
                 this.showError(data.error || 'Search failed');
             }
@@ -92,6 +98,45 @@ class AcademicResearchApp {
             searchButton.innerHTML = originalText;
             searchButton.disabled = false;
         }
+    }
+
+    displaySourcesUsed(sources) {
+        // Add or update sources used display
+        let sourcesDisplay = document.getElementById('sourcesUsed');
+        if (!sourcesDisplay) {
+            sourcesDisplay = document.createElement('div');
+            sourcesDisplay.id = 'sourcesUsed';
+            sourcesDisplay.className = 'sources-used';
+            sourcesDisplay.innerHTML = '<h4><i class="fas fa-database"></i> Sources Used</h4><div class="sources-list"></div>';
+            
+            // Insert after stats panel
+            const statsPanel = document.getElementById('statsPanel');
+            statsPanel.insertAdjacentElement('afterend', sourcesDisplay);
+        }
+        
+        const sourcesList = sourcesDisplay.querySelector('.sources-list');
+        sourcesList.innerHTML = '';
+        
+        if (sources && sources.length > 0) {
+            sources.forEach(source => {
+                const sourceElement = document.createElement('span');
+                sourceElement.className = 'source-tag';
+                sourceElement.textContent = this.formatSourceName(source);
+                sourcesList.appendChild(sourceElement);
+            });
+        }
+    }
+    
+    formatSourceName(source) {
+        const sourceNames = {
+            'arxiv': 'arXiv',
+            'semantic_scholar': 'Semantic Scholar',
+            'core': 'CORE',
+            'crossref': 'Crossref',
+            'pubmed': 'PubMed',
+            'ieee': 'IEEE Xplore'
+        };
+        return sourceNames[source] || source;
     }
 
     displayResults(data) {

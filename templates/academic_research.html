@@ -73,6 +73,19 @@
                             </div>
                             
                             <div class="option-group">
+                                <label for="sources">Sources:</label>
+                                <select id="sources" name="sources" multiple>
+                                    <option value="arxiv" selected>arXiv</option>
+                                    <option value="semantic_scholar" selected>Semantic Scholar</option>
+                                    <option value="core" selected>CORE</option>
+                                    <option value="crossref">Crossref</option>
+                                    <option value="pubmed">PubMed</option>
+                                    <option value="ieee">IEEE Xplore</option>
+                                </select>
+                                <small class="form-help">Hold Ctrl/Cmd to select multiple sources</small>
+                            </div>
+                            
+                            <div class="option-group">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="includeScihub" checked>
                                     <span class="checkmark"></span>
@@ -88,7 +101,12 @@
             <section class="results-section" id="resultsSection" style="display: none;">
                 <!-- AI Analysis Panel -->
                 <div class="analysis-panel" id="analysisPanel">
-                    <h3><i class="fas fa-brain"></i> AI Analysis</h3>
+                    <div class="analysis-header">
+                        <h3><i class="fas fa-brain"></i> AI Analysis</h3>
+                        <span class="ai-model-badge">
+                            <i class="fas fa-robot"></i> Gemini 2.0 Flash
+                        </span>
+                    </div>
                     <div class="analysis-content" id="analysisContent">
                         <div class="loading">Analyzing papers...</div>
                     </div>

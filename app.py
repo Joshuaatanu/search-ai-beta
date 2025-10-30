@@ -9,6 +9,7 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 import arxiv
 import re
 from datetime import datetime, timedelta
@@ -20,6 +21,9 @@ import time
 
 # Import our Sci-Hub integration
 from utils.scihub_api import scihub_api
+
+# Import multi-source API integration
+from utils.multi_source_api import multi_source_api
 
 # Load environment variables
 load_dotenv()
@@ -36,9 +40,62 @@ app.secret_key = os.getenv("SECRET_KEY", "sentino-academic-research-key")
 PAPERS_PER_PAGE = 20
 MAX_SEARCH_RESULTS = 100
 
+# Cache for discovered Gemini models (avoid repeated list calls)
+_cached_gemini_models: List[str] = []
+_last_model_refresh: Optional[datetime] = None
+_MODEL_REFRESH_INTERVAL = timedelta(minutes=30)
+
+
+def _get_candidate_gemini_models() -> List[str]:
+    """Return an ordered list of Gemini model IDs to try."""
+    global _cached_gemini_models, _last_model_refresh
+    
+    # Prioritize models from environment variables
+    preferred: List[str] = []
+    env_models = os.getenv("GEMINI_MODEL", "").strip()
+    if env_models:
+        preferred.extend([model.strip() for model in env_models.split(",") if model.strip()])
+
+    # Append a static list of known good models
+    preferred.extend([
+        "gemini-2.0-flash"
+    ])
+    
+    now = datetime.utcnow()
+    refresh_needed = (
+        not _cached_gemini_models
+        or _last_model_refresh is None
+        or (now - _last_model_refresh) > _MODEL_REFRESH_INTERVAL
+    )
+
+    if refresh_needed:
+        try:
+            discovered: List[str] = []
+            for model in genai.list_models():
+                if 'generateContent' in model.supported_generation_methods:
+                    # We just want the model name, not 'models/...'
+                    model_name = model.name.split('/')[-1]
+                    discovered.append(model_name)
+            
+            if discovered:
+                _cached_gemini_models = discovered
+                _last_model_refresh = now
+        except Exception as list_err:
+            logger.debug(f"Unable to list Gemini models: {list_err}")
+            # Do not clear cache on failure
+
+    # Combine preferred and discovered, ensuring no duplicates and preserving order
+    ordered_models: List[str] = []
+    seen = set()
+    for model_name in preferred + _cached_gemini_models:
+        if model_name not in seen:
+            ordered_models.append(model_name)
+            seen.add(model_name)
+            
+    return ordered_models
+
 def query_gemini(prompt, context=""):
     """Enhanced Gemini query function for academic analysis with fallback"""
-    # Check if API key is available
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key == "your_gemini_api_key_here":
         logger.warning("Gemini API key not configured, using fallback analysis")
@@ -46,9 +103,12 @@ def query_gemini(prompt, context=""):
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        candidate_models = _get_candidate_gemini_models()
         
-        # Enhanced prompt for academic research
+        if not candidate_models:
+            logger.warning("No Gemini models available; using fallback analysis")
+            return generate_fallback_analysis(prompt, context)
+            
         academic_prompt = f"""
 You are an expert academic research assistant. Analyze the following query and provide comprehensive insights.
 
@@ -65,16 +125,44 @@ Please provide:
 Respond in a clear, academic tone suitable for researchers.
 """
         
-        response = model.generate_content(academic_prompt)
-        if response and response.text:
-            return response.text
-        else:
-            logger.warning("Empty response from Gemini API, using fallback")
-            return generate_fallback_analysis(prompt, context)
+        last_error = None
+        for model_name in candidate_models:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(academic_prompt)
+                if response and hasattr(response, 'text') and response.text:
+                    return response.text
+            except google_exceptions.ResourceExhausted as e:
+                last_error = e
+                logger.warning(f"Quota exceeded for model {model_name}. Checking for retry delay.")
+                # Try to parse the retry delay from the error message
+                retry_after_match = re.search(r"Please retry in ([\d.]+)s", str(e))
+                if retry_after_match:
+                    delay = float(retry_after_match.group(1))
+                    logger.info(f"Rate limit hit. Waiting for {delay:.2f} seconds before retrying the same model.")
+                    time.sleep(delay)
+                    try:  # Retry once after delay
+                        response = model.generate_content(academic_prompt)
+                        if response and hasattr(response, 'text') and response.text:
+                            return response.text
+                    except Exception as retry_err:
+                        last_error = retry_err
+                        logger.warning(f"Retry for model {model_name} also failed: {retry_err}")
+                else:
+                    logger.warning("No retry delay found in 429 error. Trying next model.")
+                continue # Continue to next model after handling 429
+            except Exception as model_err:
+                last_error = model_err
+                logger.warning(f"Model {model_name} failed: {model_err}")
+                continue
+        
+        logger.error("All tested Gemini models failed to generate a response.")
+        if last_error:
+            logger.error(f"Last Gemini API error: {last_error}")
+        return generate_fallback_analysis(prompt, context)
         
     except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        logger.info("Using fallback analysis due to API error")
+        logger.error(f"A general error occurred in query_gemini: {e}")
         return generate_fallback_analysis(prompt, context)
 
 def generate_fallback_analysis(prompt, context=""):
@@ -354,62 +442,193 @@ def index():
 
 @app.route('/api/academic-search', methods=['POST'])
 def academic_search():
-    """Enhanced academic search with AI analysis and Sci-Hub integration"""
+    """Enhanced academic search with multi-source integration and AI analysis"""
     try:
         data = request.json
         query = data.get("query", "").strip()
         max_results = min(data.get("max_results", PAPERS_PER_PAGE), MAX_SEARCH_RESULTS)
         include_scihub = data.get("include_scihub", True)
         sort_by = data.get("sort_by", "relevance")
+        sources = data.get("sources", ["arxiv", "semantic_scholar", "core"])  # Default sources
         
         if not query:
             return jsonify({"error": "Query is required"}), 400
         
-        logger.info(f"Academic search: query='{query}', max_results={max_results}")
+        logger.info(f"Multi-source academic search: query='{query}', max_results={max_results}, sources={sources}")
         
-        # Map sort options
-        sort_mapping = {
-            "relevance": arxiv.SortCriterion.Relevance,
-            "date": arxiv.SortCriterion.SubmittedDate,
-            "updated": arxiv.SortCriterion.LastUpdatedDate
-        }
-        sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
+        all_papers = []
         
-        # Search arXiv
-        papers = query_arxiv(query, max_results, sort_criterion)
+        # Search arXiv if requested
+        if "arxiv" in sources:
+            logger.info("Searching arXiv...")
+            sort_mapping = {
+                "relevance": arxiv.SortCriterion.Relevance,
+                "date": arxiv.SortCriterion.SubmittedDate,
+                "updated": arxiv.SortCriterion.LastUpdatedDate
+            }
+            sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
+            arxiv_papers = query_arxiv(query, max_results // len(sources), sort_criterion)
+            all_papers.extend(arxiv_papers)
         
-        if not papers:
+        # Search other sources using multi-source API
+        other_sources = [s for s in sources if s != "arxiv"]
+        if other_sources:
+            logger.info(f"Searching other sources: {other_sources}")
+            # Convert source names to API format
+            api_sources = []
+            source_mapping = {
+                "semantic_scholar": "semantic_scholar",
+                "core": "core", 
+                "crossref": "crossref",
+                "pubmed": "pubmed"
+            }
+            for source in other_sources:
+                if source in source_mapping:
+                    api_sources.append(source_mapping[source])
+            
+            if api_sources:
+                other_papers = multi_source_api.search_combined(
+                    query, 
+                    max_results // len(sources), 
+                    api_sources
+                )
+                all_papers.extend(other_papers)
+        
+        # Remove duplicates based on title similarity
+        unique_papers = []
+        seen_titles = set()
+        for paper in all_papers:
+            title_key = paper.get('title', '').lower().strip()
+            if title_key and title_key not in seen_titles:
+                seen_titles.add(title_key)
+                unique_papers.append(paper)
+        
+        if not unique_papers:
             return jsonify({
                 "success": True,
                 "papers": [],
                 "total_count": 0,
                 "analysis": "No papers found for this query.",
-                "scihub_stats": {"total_papers": 0, "available_on_scihub": 0, "availability_rate": 0}
+                "scihub_stats": {"total_papers": 0, "available_on_scihub": 0, "availability_rate": 0},
+                "sources_used": sources
             })
         
         # Enhance with Sci-Hub if requested
-        scihub_stats = {"total_papers": len(papers), "available_on_scihub": 0, "availability_rate": 0}
+        scihub_stats = {"total_papers": len(unique_papers), "available_on_scihub": 0, "availability_rate": 0}
         if include_scihub:
             logger.info("Enhancing papers with Sci-Hub access information...")
-            papers = scihub_api.batch_enhance_papers(papers)
-            scihub_stats = scihub_api.get_availability_stats(papers)
+            unique_papers = scihub_api.batch_enhance_papers(unique_papers)
+            scihub_stats = scihub_api.get_availability_stats(unique_papers)
         
         # AI analysis of papers
-        papers, ai_analysis = analyze_papers_with_ai(papers, query)
+        unique_papers, ai_analysis = analyze_papers_with_ai(unique_papers, query)
         
         return jsonify({
             "success": True,
-            "papers": papers,
-            "total_count": len(papers),
+            "papers": unique_papers,
+            "total_count": len(unique_papers),
             "analysis": ai_analysis,
             "scihub_stats": scihub_stats,
             "query": query,
-            "sort_by": sort_by
+            "sort_by": sort_by,
+            "sources_used": sources
         })
             
     except Exception as e:
         logger.error(f"Error in academic search: {str(e)}")
         return jsonify({"error": "Search failed"}), 500
+
+@app.route('/api/sources', methods=['GET'])
+def get_available_sources():
+    """Get information about available academic paper sources"""
+    sources_info = {
+        "arxiv": {
+            "name": "arXiv",
+            "description": "Preprint repository for physics, mathematics, computer science, and more",
+            "free": True,
+            "api_key_required": False,
+            "rate_limit": "4 requests/second",
+            "coverage": "Physics, Math, CS, Biology, Statistics, Economics"
+        },
+        "semantic_scholar": {
+            "name": "Semantic Scholar",
+            "description": "AI-powered research tool for scientific literature",
+            "free": True,
+            "api_key_required": False,
+            "rate_limit": "100 requests/minute",
+            "coverage": "All disciplines with citation data"
+        },
+        "core": {
+            "name": "CORE",
+            "description": "World's largest collection of open access research papers",
+            "free": True,
+            "api_key_required": False,
+            "rate_limit": "1000 requests/day",
+            "coverage": "Open access papers from repositories worldwide"
+        },
+        "crossref": {
+            "name": "Crossref",
+            "description": "DOI metadata for scholarly content",
+            "free": True,
+            "api_key_required": False,
+            "rate_limit": "50 requests/second",
+            "coverage": "All disciplines with DOI"
+        },
+        "pubmed": {
+            "name": "PubMed",
+            "description": "Biomedical literature database",
+            "free": True,
+            "api_key_required": False,
+            "rate_limit": "3 requests/second",
+            "coverage": "Biomedical and life sciences"
+        },
+        "ieee": {
+            "name": "IEEE Xplore",
+            "description": "Engineering and technology papers",
+            "free": False,
+            "api_key_required": True,
+            "rate_limit": "200 requests/day",
+            "coverage": "Engineering, Computer Science, Technology"
+        }
+    }
+    
+    return jsonify({
+        "success": True,
+        "sources": sources_info,
+        "default_sources": ["arxiv", "semantic_scholar", "core"]
+    })
+
+@app.route('/api/source-stats', methods=['POST'])
+def get_source_statistics():
+    """Get statistics about paper availability across sources for a query"""
+    try:
+        data = request.json
+        query = data.get("query", "").strip()
+        
+        if not query:
+            return jsonify({"error": "Query is required"}), 400
+        
+        # Get stats from multi-source API
+        available_sources = ["semantic_scholar", "core", "crossref"]
+        stats = multi_source_api.get_source_stats(query, available_sources)
+        
+        # Add arXiv stats (simplified)
+        try:
+            arxiv_papers = query_arxiv(query, 5)  # Small sample
+            stats["arxiv"] = len(arxiv_papers)
+        except:
+            stats["arxiv"] = 0
+        
+        return jsonify({
+            "success": True,
+            "query": query,
+            "source_stats": stats,
+            "total_sources_checked": len(stats)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting source statistics: {str(e)}")
+        return jsonify({"error": "Failed to get source statistics"}), 500
 
 @app.route('/api/paper-analysis', methods=['POST'])
 def analyze_paper():
