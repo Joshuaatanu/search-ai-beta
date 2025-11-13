@@ -3,643 +3,209 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Account Settings - Sentino AI</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="stylesheet" href="/static/css/auth.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <title>Settings - Sentino AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    .settings-page {
+      min-height: 100vh;
+      background: var(--background-color);
+    }
+    .settings-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .settings-nav {
+      background: var(--surface-color);
+      box-shadow: var(--shadow-sm);
+      padding: 0 2rem;
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+    }
+    .settings-nav-item {
+      padding: 1rem 1.5rem;
+      text-decoration: none;
+      color: var(--text-secondary);
+      border-bottom: 3px solid transparent;
+      transition: var(--transition-fast);
+    }
+    .settings-nav-item:hover,
+    .settings-nav-item.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+    .settings-content {
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+    .settings-card {
+      background: var(--surface-color);
+      padding: 2rem;
+      border-radius: var(--border-radius-lg);
+      box-shadow: var(--shadow-md);
+      margin-bottom: 2rem;
+    }
+    .settings-card h2 {
+      margin-top: 0;
+      color: var(--text-primary);
+      border-bottom: 2px solid var(--border-color);
+      padding-bottom: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .settings-section {
+      margin-bottom: 2rem;
+    }
+    .settings-section:last-child {
+      margin-bottom: 0;
+    }
+  </style>
 </head>
-<body>
-  <header>
-    <div class="logo">Sentino AI</div>
-    <nav>
-      <ul>
-        <li><a href="/" class="nav-link">Home</a></li>
-        <li><a href="/profile" class="nav-link">Profile</a></li>
-        <li><a href="/account/settings" class="nav-link active">Settings</a></li>
-      </ul>
-    </nav>
-    <a href="/logout" class="logout-button">Logout</a>
-  </header>
+<body class="settings-page">
+  <!-- Unified Header -->
+  {% include 'components/header.html' %}
   
-  <main class="profile-container">
-    <section class="profile-header">
-      <div class="profile-picture">
-        {% if user.picture %}
-          <img src="{{ user.picture }}" alt="{{ user.name }}">
-        {% else %}
-          <div class="profile-picture-placeholder">{{ user.name[:1] }}</div>
-        {% endif %}
-      </div>
-      
-      <div class="profile-info">
-        <h1>Account Settings</h1>
-        <p>Manage your account information and preferences</p>
-        <p class="profile-provider">
-          <span class="provider-badge {{ user.provider }}">{{ user.provider|capitalize }}</span>
-          Account
-        </p>
-      </div>
-    </section>
-    
-    <div class="profile-tabs">
-      <div class="profile-tab active" data-tab="profile">Profile Information</div>
-      <div class="profile-tab" data-tab="theme">Theme</div>
-      <div class="profile-tab" data-tab="search">Search</div>
-      <div class="profile-tab" data-tab="privacy">Privacy</div>
-      <div class="profile-tab" data-tab="security">Security</div>
-      <div class="profile-tab" data-tab="notifications">Notifications</div>
-      <div class="profile-tab" data-tab="password">Password</div>
-      <div class="profile-tab" data-tab="danger">Danger Zone</div>
+  <!-- Page Header -->
+  <div class="settings-header">
+    <h1><i class="fas fa-cog"></i> Account Settings</h1>
+    <p>Manage your account preferences and security</p>
+  </div>
+
+  <!-- Content -->
+  <div class="settings-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">
+            <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }}"></i>
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Profile Information -->
+    <div class="settings-card">
+      <h2><i class="fas fa-user-circle"></i> Profile Information</h2>
+      <form action="{{ url_for('update_account') }}" method="POST">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" value="{{ user.username }}" required minlength="3">
+          <small>Your unique identifier on the platform</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="name">Full Name</label>
+          <input type="text" id="name" name="name" value="{{ user.name or '' }}">
+          <small>Your display name (optional)</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" value="{{ user.email }}" required>
+          <small>Used for account recovery and notifications</small>
+        </div>
+        
+        <button type="submit" class="btn-primary">
+          <i class="fas fa-save"></i> Save Changes
+        </button>
+      </form>
     </div>
-    
-    <div class="profile-content">
-      <!-- Profile Tab -->
-      <div class="tab-panel active" id="profile-panel">
-        <div class="settings-card">
-          <h2>Edit Profile</h2>
-          <form action="/account/update" method="POST" enctype="multipart/form-data">
-            <div class="profile-picture-upload">
-              <div class="current-picture">
-                {% if user.picture %}
-                  <img src="{{ user.picture }}" alt="{{ user.name }}" class="picture-preview">
-                {% else %}
-                  <div class="picture-placeholder">{{ user.name[:1] }}</div>
-                {% endif %}
-              </div>
-              <div class="upload-controls">
-                <label for="profile_picture" class="file-upload-label">
-                  <i class="fas fa-upload"></i> Change Picture
-                </label>
-                <input type="file" id="profile_picture" name="profile_picture" accept="image/*" class="file-upload-input">
-                <small>Maximum size: 5MB. Recommended: square image (1:1)</small>
-                <div id="picture-preview-container" class="hidden">
-                  <img id="picture-preview" src="#" alt="Preview">
-                  <button type="button" id="remove-picture" class="remove-button">Remove</button>
-                </div>
-              </div>
-            </div>
-            
-            <div class="form-group">
-              <label for="username">Username</label>
-              <input type="text" id="username" name="username" value="{{ user.username }}" required>
-            </div>
-            
-            <div class="form-group">
-              <label for="name">Full Name</label>
-              <input type="text" id="name" name="name" value="{{ user.name }}">
-            </div>
-            
-            <div class="form-group">
-              <label for="email">Email</label>
-              <input type="email" id="email" name="email" value="{{ user.email }}" {% if user.provider != 'email' %}readonly{% endif %}>
-              {% if user.provider != 'email' %}
-                <small>Email cannot be changed for {{ user.provider }} accounts</small>
-              {% endif %}
-            </div>
-            
-            <button type="submit" class="submit-button">Update Profile</button>
-          </form>
+
+    <!-- Password Change -->
+    <div class="settings-card">
+      <h2><i class="fas fa-lock"></i> Change Password</h2>
+      <form action="{{ url_for('change_password') }}" method="POST">
+        <div class="form-group">
+          <label for="current_password">Current Password</label>
+          <input type="password" id="current_password" name="current_password" required>
         </div>
-      </div>
-      
-      <!-- Theme Customization Tab -->
-      <div class="tab-panel" id="theme-panel">
-        <div class="settings-card">
-          <h2>Theme Customization</h2>
-          <form action="/account/update-preferences" method="POST">
-            <input type="hidden" name="preference_type" value="theme">
-            
-            <div class="form-group">
-              <label>Theme Mode</label>
-              <div class="radio-group">
-                <label class="radio-label">
-                  <input type="radio" name="theme_mode" value="light" {% if not user.preferences.get('theme_mode') or user.preferences.get('theme_mode') == 'light' %}checked{% endif %}>
-                  Light
-                </label>
-                <label class="radio-label">
-                  <input type="radio" name="theme_mode" value="dark" {% if user.preferences.get('theme_mode') == 'dark' %}checked{% endif %}>
-                  Dark
-                </label>
-                <label class="radio-label">
-                  <input type="radio" name="theme_mode" value="system" {% if user.preferences.get('theme_mode') == 'system' %}checked{% endif %}>
-                  Follow System
-                </label>
-              </div>
-            </div>
-            
-            <div class="form-group">
-              <label for="accent_color">Accent Color</label>
-              <div class="color-picker-container">
-                <input type="color" id="accent_color" name="accent_color" value="{{ user.preferences.get('accent_color', '#007bff') }}">
-                <span class="color-value" id="color-value-text">{{ user.preferences.get('accent_color', '#007bff') }}</span>
-                <div class="color-preview" id="color-preview" style="background-color: {{ user.preferences.get('accent_color', '#007bff') }};"></div>
-              </div>
-            </div>
-            
-            <div class="form-group">
-              <label for="font_size">Font Size</label>
-              <select id="font_size" name="font_size" class="form-select">
-                <option value="small" {% if user.preferences.get('font_size') == 'small' %}selected{% endif %}>Small</option>
-                <option value="medium" {% if not user.preferences.get('font_size') or user.preferences.get('font_size') == 'medium' %}selected{% endif %}>Medium</option>
-                <option value="large" {% if user.preferences.get('font_size') == 'large' %}selected{% endif %}>Large</option>
-              </select>
-            </div>
-            
-            <button type="submit" class="submit-button">Update Theme Settings</button>
-          </form>
+        
+        <div class="form-group">
+          <label for="new_password">New Password</label>
+          <input type="password" id="new_password" name="new_password" required minlength="8">
+          <small>Minimum 8 characters</small>
         </div>
-      </div>
-      
-      <!-- Search Preferences Tab -->
-      <div class="tab-panel" id="search-panel">
-        <div class="settings-card">
-          <h2>Search Preferences</h2>
-          <form action="/account/update-preferences" method="POST">
-            <input type="hidden" name="preference_type" value="search">
-            
-            <div class="form-group">
-              <label>Default Search Type</label>
-              <div class="radio-group">
-                <label class="radio-label">
-                  <input type="radio" name="default_search_type" value="quick" {% if not user.preferences.get('default_search_type') or user.preferences.get('default_search_type') == 'quick' %}checked{% endif %}>
-                  Quick Search
-                </label>
-                <label class="radio-label">
-                  <input type="radio" name="default_search_type" value="deep" {% if user.preferences.get('default_search_type') == 'deep' %}checked{% endif %}>
-                  Deep Analysis
-                </label>
-                <label class="radio-label">
-                  <input type="radio" name="default_search_type" value="academic" {% if user.preferences.get('default_search_type') == 'academic' %}checked{% endif %}>
-                  Academic
-                </label>
-              </div>
-            </div>
-            
-            <div class="form-group">
-              <label for="results_per_page">Results Per Page</label>
-              <select id="results_per_page" name="results_per_page" class="form-select">
-                <option value="3" {% if user.preferences.get('results_per_page') == 3 %}selected{% endif %}>3 results</option>
-                <option value="5" {% if not user.preferences.get('results_per_page') or user.preferences.get('results_per_page') == 5 %}selected{% endif %}>5 results</option>
-                <option value="10" {% if user.preferences.get('results_per_page') == 10 %}selected{% endif %}>10 results</option>
-              </select>
-            </div>
-            
-            <div class="checkbox-group">
-              <input type="checkbox" id="auto_save_searches" name="auto_save_searches" {% if user.preferences.get('auto_save_searches', True) %}checked{% endif %}>
-              <label for="auto_save_searches">Automatically save searches to history</label>
-            </div>
-            
-            <button type="submit" class="submit-button">Update Search Settings</button>
-          </form>
+        
+        <div class="form-group">
+          <label for="confirm_password">Confirm New Password</label>
+          <input type="password" id="confirm_password" name="confirm_password" required>
         </div>
-      </div>
-      
-      <!-- Privacy Settings Tab -->
-      <div class="tab-panel" id="privacy-panel">
-        <div class="settings-card">
-          <h2>Privacy Settings</h2>
-          <form action="/account/update-preferences" method="POST">
-            <input type="hidden" name="preference_type" value="privacy">
-            
-            <div class="form-group">
-              <label for="history_retention">Search History Retention</label>
-              <select id="history_retention" name="history_retention" class="form-select">
-                <option value="30" {% if user.preferences.get('history_retention') == 30 %}selected{% endif %}>30 days</option>
-                <option value="90" {% if not user.preferences.get('history_retention') or user.preferences.get('history_retention') == 90 %}selected{% endif %}>90 days</option>
-                <option value="365" {% if user.preferences.get('history_retention') == 365 %}selected{% endif %}>1 year</option>
-                <option value="0" {% if user.preferences.get('history_retention') == 0 %}selected{% endif %}>Forever</option>
-              </select>
-            </div>
-            
-            <div class="checkbox-group">
-              <input type="checkbox" id="allow_recommendations" name="allow_recommendations" {% if user.preferences.get('allow_recommendations', True) %}checked{% endif %}>
-              <label for="allow_recommendations">Allow personalized recommendations based on search history</label>
-            </div>
-            
-            <div class="checkbox-group">
-              <input type="checkbox" id="share_usage_data" name="share_usage_data" {% if user.preferences.get('share_usage_data', True) %}checked{% endif %}>
-              <label for="share_usage_data">Share anonymous usage data to improve the service</label>
-            </div>
-            
-            <button type="submit" class="submit-button">Update Privacy Settings</button>
-          </form>
-          
-          <div class="settings-action">
-            <h3>Download Your Data</h3>
-            <p>You can download all data associated with your account, including profile information, search history, and favorites.</p>
-            <a href="/account/download-data" class="action-button">Download Data (GDPR)</a>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Security Tab -->
-      <div class="tab-panel" id="security-panel">
-        <div class="settings-card">
-          <h2>Account Security</h2>
-          
-          <div class="settings-section">
-            <h3>Two-Factor Authentication</h3>
-            <p>Add an extra layer of security to your account by enabling two-factor authentication.</p>
-            
-            <div class="toggle-container">
-              <label class="toggle-switch">
-                <input type="checkbox" id="two_factor_toggle" {% if user.preferences.get('two_factor_enabled') %}checked{% endif %}>
-                <span class="toggle-slider"></span>
-              </label>
-              <span class="toggle-label">{% if user.preferences.get('two_factor_enabled') %}Enabled{% else %}Disabled{% endif %}</span>
-            </div>
-            
-            <div id="two_factor_setup" class="{% if not user.preferences.get('two_factor_enabled') %}hidden{% endif %}">
-              <button type="button" class="action-button" id="setup_2fa_button">Setup Two-Factor Authentication</button>
-            </div>
-          </div>
-          
-          <div class="settings-section">
-            <h3>Login Activity</h3>
-            <p>Review your recent login activity and manage your active sessions.</p>
-            
-            <div class="login-activity">
-              <div class="activity-item">
-                <div class="activity-details">
-                  <span class="activity-device">Chrome on Windows</span>
-                  <span class="activity-location">New York, USA</span>
-                  <span class="activity-time">Current session</span>
-                </div>
-                <span class="activity-status current">This Device</span>
-              </div>
-              
-              <!-- Additional sessions would be dynamically added here -->
-            </div>
-            
-            <button type="button" class="action-button danger-action" id="logout_all_button">Logout from All Devices</button>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Notifications Tab -->
-      <div class="tab-panel" id="notifications-panel">
-        <div class="settings-card">
-          <h2>Notification Settings</h2>
-          <form action="/account/update-preferences" method="POST">
-            <input type="hidden" name="preference_type" value="notifications">
-            
-            <div class="settings-section">
-              <h3>Email Notifications</h3>
-              
-              <div class="checkbox-group">
-                <input type="checkbox" id="email_new_recommendations" name="email_new_recommendations" {% if user.preferences.get('email_new_recommendations', True) %}checked{% endif %}>
-                <label for="email_new_recommendations">Send me emails about new recommendations</label>
-              </div>
-              
-              <div class="checkbox-group">
-                <input type="checkbox" id="email_security_alerts" name="email_security_alerts" {% if user.preferences.get('email_security_alerts', True) %}checked{% endif %}>
-                <label for="email_security_alerts">Send me security alerts (suspicious login attempts, etc.)</label>
-              </div>
-              
-              <div class="checkbox-group">
-                <input type="checkbox" id="email_product_updates" name="email_product_updates" {% if user.preferences.get('email_product_updates', True) %}checked{% endif %}>
-                <label for="email_product_updates">Send me product updates and announcements</label>
-              </div>
-            </div>
-            
-            <div class="settings-section">
-              <h3>Notification Frequency</h3>
-              
-              <div class="form-group">
-                <label for="notification_frequency">Email Frequency</label>
-                <select id="notification_frequency" name="notification_frequency" class="form-select">
-                  <option value="immediate" {% if user.preferences.get('notification_frequency') == 'immediate' %}selected{% endif %}>Immediate</option>
-                  <option value="daily" {% if not user.preferences.get('notification_frequency') or user.preferences.get('notification_frequency') == 'daily' %}selected{% endif %}>Daily Digest</option>
-                  <option value="weekly" {% if user.preferences.get('notification_frequency') == 'weekly' %}selected{% endif %}>Weekly Summary</option>
-                </select>
-              </div>
-            </div>
-            
-            <button type="submit" class="submit-button">Update Notification Settings</button>
-          </form>
-        </div>
-      </div>
-      
-      <!-- Password Tab -->
-      <div class="tab-panel" id="password-panel">
-        <div class="settings-card">
-          <h2>Change Password</h2>
-          {% if user.provider == 'email' %}
-            <form action="/account/change-password" method="POST">
-              <div class="form-group">
-                <label for="current_password">Current Password</label>
-                <input type="password" id="current_password" name="current_password" required>
-              </div>
-              
-              <div class="form-group">
-                <label for="new_password">New Password</label>
-                <input type="password" id="new_password" name="new_password" required minlength="8">
-                <small>Minimum 8 characters</small>
-              </div>
-              
-              <div class="form-group">
-                <label for="confirm_password">Confirm New Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
-              </div>
-              
-              <button type="submit" class="submit-button">Change Password</button>
-            </form>
-          {% else %}
-            <p>You're using {{ user.provider }} to log in, so you don't have a password for this account.</p>
-            <form action="/account/change-password" method="POST">
-              <div class="form-group">
-                <label for="new_password">Set Password</label>
-                <input type="password" id="new_password" name="new_password" required minlength="8">
-                <small>Minimum 8 characters</small>
-              </div>
-              
-              <div class="form-group">
-                <label for="confirm_password">Confirm Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
-              </div>
-              
-              <input type="hidden" name="current_password" value="">
-              <button type="submit" class="submit-button">Set Password</button>
-              <p class="help-text">Setting a password will allow you to log in with your email/username in addition to {{ user.provider }}.</p>
-            </form>
-          {% endif %}
-        </div>
-      </div>
-      
-      <!-- Danger Zone Tab -->
-      <div class="tab-panel" id="danger-panel">
-        <div class="settings-card danger-zone">
-          <h2>Delete Account</h2>
-          <p>Once you delete your account, there is no going back. Please be certain.</p>
-          
-          <form action="/account/delete" method="POST" id="deleteForm">
-            {% if user.provider == 'email' %}
-              <div class="form-group">
-                <label for="delete_password">Confirm your password</label>
-                <input type="password" id="delete_password" name="password" required>
-              </div>
-            {% endif %}
-            
-            <button type="button" class="danger-button" id="confirmDeleteBtn">Delete Account</button>
-          </form>
-        </div>
+        
+        <button type="submit" class="btn-primary">
+          <i class="fas fa-key"></i> Change Password
+        </button>
+      </form>
+    </div>
+
+    <!-- Account Statistics -->
+    <div class="settings-card">
+      <h2><i class="fas fa-chart-bar"></i> Account Statistics</h2>
+      <div class="settings-section">
+        <p><strong>Member Since:</strong> {{ user.created_at.strftime('%B %d, %Y') if user.created_at else 'Unknown' }}</p>
+        <p><strong>Last Login:</strong> {{ user.last_login.strftime('%B %d, %Y at %I:%M %p') if user.last_login else 'Unknown' }}</p>
+        <p><strong>Account Type:</strong> {{ user.provider|capitalize }}</p>
+        <p><strong>Email Verified:</strong> {% if user.email_verified %}Yes{% else %}No{% endif %}</p>
       </div>
     </div>
-  </main>
-  
-  <div id="confirmationModal" class="modal">
-    <div class="modal-content">
-      <span class="close-modal">&times;</span>
-      <h2>Are you absolutely sure?</h2>
-      <p>This action cannot be undone. This will permanently delete your account, remove your data and remove your content from this service.</p>
-      <div class="modal-actions">
-        <button class="cancel-button">Cancel</button>
-        <button class="danger-button" id="finalDeleteBtn">Yes, delete my account</button>
+
+    <!-- Danger Zone -->
+    <div class="settings-card" style="border: 2px solid var(--error-color);">
+      <h2 style="color: var(--error-color);"><i class="fas fa-exclamation-triangle"></i> Danger Zone</h2>
+      <div class="settings-section">
+        <p><strong>Clear Search History</strong></p>
+        <p>Permanently delete all your search history. This action cannot be undone.</p>
+        <button class="btn-secondary" onclick="clearAllHistory()" style="background: var(--error-color); border-color: var(--error-color);">
+          <i class="fas fa-trash"></i> Clear All History
+        </button>
       </div>
+      
+      <div class="settings-section" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color);">
+        <p><strong>Delete Account</strong></p>
+        <p>Once you delete your account, there is no going back. This will permanently delete all your data.</p>
+        <button class="btn-secondary" onclick="alert('Account deletion feature coming soon')" style="background: var(--error-color); border-color: var(--error-color);">
+          <i class="fas fa-user-times"></i> Delete Account
+        </button>
+      </div>
+    </div>
+
+    <!-- Back to Profile -->
+    <div style="text-align: center; margin-top: 2rem;">
+      <a href="/profile" class="btn-secondary">
+        <i class="fas fa-arrow-left"></i> Back to Profile
+      </a>
     </div>
   </div>
-  
+
   <script>
-    // Tab switching
-    const tabs = document.querySelectorAll('.profile-tab');
-    const panels = document.querySelectorAll('.tab-panel');
-    
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        // Deactivate all tabs and panels
-        tabs.forEach(t => t.classList.remove('active'));
-        panels.forEach(p => p.classList.remove('active'));
-        
-        // Activate clicked tab and corresponding panel
-        tab.classList.add('active');
-        const tabName = tab.getAttribute('data-tab');
-        document.getElementById(`${tabName}-panel`).classList.add('active');
-      });
-    });
-    
-    // Password matching validation
-    const newPassword = document.getElementById('new_password');
-    const confirmPassword = document.getElementById('confirm_password');
-    
-    function validatePassword() {
-      if (newPassword.value !== confirmPassword.value) {
-        confirmPassword.setCustomValidity("Passwords don't match");
-      } else {
-        confirmPassword.setCustomValidity('');
+    async function clearAllHistory() {
+      if (!confirm('Are you sure you want to clear ALL your search history? This action cannot be undone.')) {
+        return;
       }
-    }
-    
-    if (newPassword && confirmPassword) {
-      newPassword.addEventListener('change', validatePassword);
-      confirmPassword.addEventListener('keyup', validatePassword);
-    }
-    
-    // Account deletion confirmation
-    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
-    const deleteForm = document.getElementById('deleteForm');
-    const modal = document.getElementById('confirmationModal');
-    const closeModalBtn = document.querySelector('.close-modal');
-    const cancelBtn = document.querySelector('.cancel-button');
-    const finalDeleteBtn = document.getElementById('finalDeleteBtn');
-    
-    confirmDeleteBtn.addEventListener('click', () => {
-      // Show the confirmation modal
-      modal.style.display = 'block';
-    });
-    
-    closeModalBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
-    });
-    
-    cancelBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
-    });
-    
-    finalDeleteBtn.addEventListener('click', () => {
-      // Submit the delete form
-      deleteForm.submit();
-    });
-    
-    // Close modal if clicked outside
-    window.addEventListener('click', (event) => {
-      if (event.target === modal) {
-        modal.style.display = 'none';
-      }
-    });
-    
-    // Check for flash messages
-    document.addEventListener('DOMContentLoaded', () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const message = urlParams.get('message');
-      const type = urlParams.get('type') || 'info';
       
-      if (message) {
-        const flashDiv = document.createElement('div');
-        flashDiv.className = `flash-message ${type}`;
-        flashDiv.textContent = decodeURIComponent(message);
-        
-        document.body.insertBefore(flashDiv, document.body.firstChild);
-        
-        // Auto-dismiss after 5 seconds
-        setTimeout(() => {
-          flashDiv.style.opacity = '0';
-          setTimeout(() => {
-            flashDiv.remove();
-          }, 500);
-        }, 5000);
-      }
-    });
-    
-    // Two-Factor Authentication toggle
-    const twoFactorToggle = document.getElementById('two_factor_toggle');
-    const toggleLabel = document.querySelector('.toggle-label');
-    const twoFactorSetup = document.getElementById('two_factor_setup');
-    const setupButton = document.getElementById('setup_2fa_button');
-    
-    if (twoFactorToggle) {
-      twoFactorToggle.addEventListener('change', function() {
-        const enabled = this.checked;
-        
-        // Update the label
-        toggleLabel.textContent = enabled ? 'Enabled' : 'Disabled';
-        
-        // Show/hide setup button
-        if (enabled) {
-          twoFactorSetup.classList.remove('hidden');
-        } else {
-          twoFactorSetup.classList.add('hidden');
-        }
-        
-        // Send request to server
-        fetch('/account/toggle-2fa', {
+      try {
+        const response = await fetch('/api/user/clear-history', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            enabled: enabled
-          })
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (!data.success) {
-            // Revert the toggle if there was an error
-            this.checked = !enabled;
-            toggleLabel.textContent = !enabled ? 'Enabled' : 'Disabled';
-            
-            if (!enabled) {
-              twoFactorSetup.classList.remove('hidden');
-            } else {
-              twoFactorSetup.classList.add('hidden');
-            }
-            
-            // Show error
-            alert(data.message || 'Failed to update two-factor authentication settings');
           }
-        })
-        .catch(error => {
-          console.error('Error:', error);
-          
-          // Revert the toggle
-          this.checked = !enabled;
-          toggleLabel.textContent = !enabled ? 'Enabled' : 'Disabled';
-          
-          if (!enabled) {
-            twoFactorSetup.classList.remove('hidden');
-          } else {
-            twoFactorSetup.classList.add('hidden');
-          }
-          
-          // Show error
-          alert('Failed to update two-factor authentication settings. Please try again.');
         });
-      });
-    }
-    
-    // Setup 2FA button
-    if (setupButton) {
-      setupButton.addEventListener('click', function() {
-        window.location.href = '/account/setup-2fa';
-      });
-    }
-    
-    // Logout from all devices
-    const logoutAllButton = document.getElementById('logout_all_button');
-    
-    if (logoutAllButton) {
-      logoutAllButton.addEventListener('click', function() {
-        if (confirm('Are you sure you want to log out from all other devices?')) {
-          // Send request to server
-          fetch('/account/logout-all-devices', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              alert(data.message || 'You have been logged out from all other devices.');
-            } else {
-              alert(data.message || 'Failed to log out from all devices. Please try again.');
-            }
-          })
-          .catch(error => {
-            console.error('Error:', error);
-            alert('Failed to log out from all devices. Please try again.');
-          });
+        
+        if (response.ok) {
+          alert('Search history cleared successfully!');
+          window.location.reload();
+        } else {
+          alert('Failed to clear history. Please try again.');
         }
-      });
-    }
-    
-    // Profile picture upload preview
-    const profilePictureInput = document.getElementById('profile_picture');
-    const picturePreviewContainer = document.getElementById('picture-preview-container');
-    const picturePreview = document.getElementById('picture-preview');
-    const removeButton = document.getElementById('remove-picture');
-    
-    if (profilePictureInput) {
-      profilePictureInput.addEventListener('change', function(e) {
-        if (this.files && this.files[0]) {
-          // Check file size (5MB max)
-          if (this.files[0].size > 5 * 1024 * 1024) {
-            alert('File size exceeds 5MB limit.');
-            this.value = '';
-            return;
-          }
-          
-          const reader = new FileReader();
-          
-          reader.onload = function(e) {
-            picturePreview.src = e.target.result;
-            picturePreviewContainer.classList.remove('hidden');
-          }
-          
-          reader.readAsDataURL(this.files[0]);
-        }
-      });
-    }
-    
-    if (removeButton) {
-      removeButton.addEventListener('click', function() {
-        profilePictureInput.value = '';
-        picturePreviewContainer.classList.add('hidden');
-      });
-    }
-    
-    // Color picker preview
-    const accentColorInput = document.getElementById('accent_color');
-    const colorValueText = document.getElementById('color-value-text');
-    const colorPreview = document.getElementById('color-preview');
-    
-    if (accentColorInput) {
-      accentColorInput.addEventListener('input', function() {
-        colorValueText.textContent = this.value;
-        colorPreview.style.backgroundColor = this.value;
-      });
+      } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+      }
     }
   </script>
 </body>
-</html> 
+</html>

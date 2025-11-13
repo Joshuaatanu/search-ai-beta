@@ -4,29 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sentino AI - Academic Research Platform</title>
+    <!-- Unified Component Library -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <!-- Page Specific Styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+    <!-- Font Awesome Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <div class="logo">
-                    <i class="fas fa-graduation-cap"></i>
-                    <h1>Sentino AI</h1>
-                    <span class="subtitle">Academic Research Platform</span>
-                </div>
-                <div class="header-actions">
-                    <button class="btn-secondary" onclick="showTrendingTopics()">
-                        <i class="fas fa-chart-line"></i> Trending
-                    </button>
-                    <button class="btn-secondary" onclick="showSciHubStatus()">
-                        <i class="fas fa-server"></i> Sci-Hub Status
-                    </button>
-                </div>
-            </div>
-        </header>
+        <!-- Unified Header Component -->
+        {% include 'components/header.html' %}
 
         <!-- Main Content -->
         <main class="main-content">
@@ -94,6 +82,21 @@
                             </div>
                         </div>
                     </form>
+                </div>
+            </section>
+
+            <!-- Search History Section (Only visible when logged in) -->
+            <section class="history-section" id="historySection" style="display: none;">
+                <div class="history-container">
+                    <div class="history-header">
+                        <h3><i class="fas fa-history"></i> Your Search History</h3>
+                        <button class="btn-secondary btn-sm" onclick="clearSearchHistory()">
+                            <i class="fas fa-trash"></i> Clear History
+                        </button>
+                    </div>
+                    <div id="historyList" class="history-list">
+                        <div class="loading">Loading your search history...</div>
+                    </div>
                 </div>
             </section>
 
@@ -344,6 +347,66 @@
             <div class="modal-body">
                 <div class="framework-content" id="frameworkContent">
                     <div class="loading">Generating research framework...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Search Modal -->
+    <div class="modal" id="quickSearchModal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-bolt"></i> Quick Search</h3>
+                <button class="modal-close" onclick="closeModal('quickSearchModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                    Get instant answers to your questions using AI-powered web search
+                </p>
+                <form id="quickSearchForm" onsubmit="performQuickSearch(event)">
+                    <div class="form-group">
+                        <input type="text" id="quickSearchInput" placeholder="Ask any question..." 
+                               style="width: 100%; padding: 1rem; font-size: 1rem; border: 1px solid var(--border-color); border-radius: var(--border-radius);" required>
+                    </div>
+                    <button type="submit" class="btn-primary" style="width: 100%; padding: 1rem;">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </form>
+                <div id="quickSearchResults" style="margin-top: 2rem; display: none;">
+                    <h4 style="margin-bottom: 1rem;"><i class="fas fa-check-circle"></i> Answer:</h4>
+                    <div id="quickSearchContent" class="analysis-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deep Analysis Modal -->
+    <div class="modal" id="deepAnalysisModal">
+        <div class="modal-content large-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-brain"></i> Deep Analysis</h3>
+                <button class="modal-close" onclick="closeModal('deepAnalysisModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                    Get comprehensive analysis with multiple perspectives and detailed insights
+                </p>
+                <form id="deepAnalysisFormModal" onsubmit="performDeepAnalysis(event)">
+                    <div class="form-group">
+                        <textarea id="deepAnalysisInput" rows="4" placeholder="Enter a complex question or topic for deep analysis..." 
+                                  style="width: 100%; padding: 1rem; font-size: 1rem; border: 1px solid var(--border-color); border-radius: var(--border-radius); resize: vertical;" required></textarea>
+                    </div>
+                    <button type="submit" class="btn-primary" style="width: 100%; padding: 1rem;">
+                        <i class="fas fa-microscope"></i> Analyze
+                    </button>
+                </form>
+                <div id="deepAnalysisResults" style="margin-top: 2rem; display: none;">
+                    <h4 style="margin-bottom: 1rem;"><i class="fas fa-lightbulb"></i> Comprehensive Analysis:</h4>
+                    <div id="deepAnalysisContent" class="analysis-content"></div>
                 </div>
             </div>
         </div>

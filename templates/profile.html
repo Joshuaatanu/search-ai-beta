@@ -4,437 +4,268 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Profile - Sentino AI</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="stylesheet" href="/static/css/auth.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    .profile-page {
+      min-height: 100vh;
+      background: var(--background-color);
+    }
+    .profile-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 4rem 2rem 2rem 2rem;
+      text-align: center;
+    }
+    .profile-avatar {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      border: 4px solid white;
+      margin: 0 auto 1rem auto;
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      font-weight: bold;
+      color: var(--primary-color);
+      box-shadow: var(--shadow-xl);
+    }
+    .profile-avatar img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .profile-name {
+      font-size: 2rem;
+      font-weight: 700;
+      margin: 0;
+    }
+    .profile-email {
+      font-size: 1.125rem;
+      opacity: 0.9;
+      margin: 0.5rem 0;
+    }
+    .profile-badge {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: var(--border-radius-full);
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .profile-nav {
+      background: var(--surface-color);
+      box-shadow: var(--shadow-sm);
+      padding: 0 2rem;
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+    }
+    .profile-nav-item {
+      padding: 1rem 1.5rem;
+      text-decoration: none;
+      color: var(--text-secondary);
+      border-bottom: 3px solid transparent;
+      transition: var(--transition-fast);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .profile-nav-item:hover,
+    .profile-nav-item.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+    .profile-content {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: var(--surface-color);
+      padding: 2rem;
+      border-radius: var(--border-radius-lg);
+      box-shadow: var(--shadow-md);
+      text-align: center;
+    }
+    .stat-icon {
+      font-size: 2.5rem;
+      color: var(--primary-color);
+      margin-bottom: 1rem;
+    }
+    .stat-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0;
+    }
+    .stat-label {
+      color: var(--text-secondary);
+      margin: 0.5rem 0 0 0;
+    }
+  </style>
 </head>
-<body>
-  <header>
-    <div class="logo">Sentino AI</div>
-    <nav>
-      <ul>
-        <li><a href="/" class="nav-link">Home</a></li>
-        <li><a href="/profile" class="nav-link active">Profile</a></li>
-        <li><a href="/account/settings" class="nav-link ">Settings</a></li>
-      </ul>
-    </nav>
-    <a href="/logout" class="logout-button">Logout</a>
-  </header>
+<body class="profile-page">
+  <!-- Unified Header -->
+  {% include 'components/header.html' %}
   
-  <main class="profile-container">
-    <section class="profile-header">
-      <div class="profile-picture">
-        {% if user.picture %}
-          <img src="{{ user.picture }}" alt="{{ user.name }}">
-        {% else %}
-          <div class="profile-picture-placeholder">{{ user.name[:1] }}</div>
-        {% endif %}
-      </div>
-      
-      <div class="profile-info">
-        <h1>{{ user.name }}</h1>
-        <p>{{ user.email }}</p>
-        <p class="profile-provider">
-          <span class="provider-badge {{ user.provider }}">{{ user.provider|capitalize }}</span>
-          Account
-        </p>
-      </div>
-      
-      <div class="profile-actions">
-        <a href="/" class="button">Back to Search</a>
-      </div>
-    </section>
-    
-    <div class="profile-tabs">
-      <div class="profile-tab active" data-tab="history">Search History</div>
-      <div class="profile-tab" data-tab="favorites">Favorites</div>
-      <div class="profile-tab" data-tab="recommendations">Recommendations</div>
+  <!-- Header -->
+  <div class="profile-header">
+    <div class="profile-avatar">
+      {% if user.picture %}
+        <img src="{{ user.picture }}" alt="{{ user.name or user.username }}">
+      {% else %}
+        {{ (user.name or user.username)[:1].upper() }}
+      {% endif %}
     </div>
-    
-    <div class="profile-content">
-      <!-- History Tab -->
-      <div class="tab-panel active" id="history-panel">
-        {% if search_history %}
-          <div class="history-actions">
-            <button id="clearHistoryBtn" class="danger-button">Clear All History</button>
-          </div>
-          
-          <div class="history-list">
-            {% for item in search_history %}
-              <div class="history-item">
-                <div class="history-item-header">
-                  <div class="history-item-title">
-                    <span class="history-item-type {{ item.search_type }}">{{ item.search_type|capitalize }}</span>
-                    {{ item.query }}
-                  </div>
-                  <div class="history-item-date">{{ item.timestamp.strftime('%b %d, %Y %H:%M') }}</div>
-                </div>
-                <div class="history-item-actions">
-                  <button class="view-details" data-id="{{ item._id }}">View Results</button>
-                  <button class="repeat-search" data-query="{{ item.query }}" data-type="{{ item.search_type }}">Repeat Search</button>
-                  <button class="add-favorite" data-query="{{ item.query }}" data-type="{{ item.search_type }}">Add to Favorites</button>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24">
-              <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
-            </svg>
-            <h3>No Search History</h3>
-            <p>Your search history will appear here</p>
-          </div>
-        {% endif %}
-        
-        <!-- Search Results Modal -->
-        <div id="searchDetailsModal" class="modal">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h2 id="modalTitle">Search Results</h2>
-              <span class="modal-close">&times;</span>
-            </div>
-            <div class="modal-body" id="modalBody">
-              <div class="loading">
-                <div class="spinner"></div>
-                <p>Loading results...</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Favorites Tab -->
-      <div class="tab-panel" id="favorites-panel">
-        {% if favorites %}
-          <div class="favorites-grid">
-            {% for favorite in favorites %}
-              <div class="favorite-card">
-                <div class="favorite-card-header">
-                  <div class="favorite-card-title">{{ favorite.name }}</div>
-                </div>
-                <div class="favorite-card-content">
-                  <div class="favorite-card-query">{{ favorite.query }}</div>
-                  <div class="favorite-card-actions">
-                    <button class="repeat-search" data-query="{{ favorite.query }}" data-type="{{ favorite.search_type }}">Search</button>
-                    <button class="remove-favorite" data-id="{{ favorite._id }}">Remove</button>
-                  </div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-            </svg>
-            <h3>No Favorites Yet</h3>
-            <p>Add searches to your favorites to see them here</p>
-          </div>
-        {% endif %}
-      </div>
-      
-      <!-- Recommendations Tab -->
-      <div class="tab-panel" id="recommendations-panel">
-        {% if recommendations %}
-          <div class="recommendations-list">
-            {% for recommendation in recommendations %}
-              <div class="recommendation-item">
-                <div>
-                  <div class="recommendation-query">{{ recommendation.query }}</div>
-                  <div class="recommendation-based">Based on your interest in "{{ recommendation.based_on }}"</div>
-                </div>
-                <button class="use-recommendation" data-query="{{ recommendation.query }}" data-type="{{ recommendation.search_type }}">Try This</button>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-            </svg>
-            <h3>No Recommendations Yet</h3>
-            <p>Search more to get personalized recommendations</p>
-          </div>
-        {% endif %}
-      </div>
-    </div>
-  </main>
-  
-  <!-- JavaScript Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  
-  <script>
-    // Tab switching
-    const tabs = document.querySelectorAll('.profile-tab');
-    const panels = document.querySelectorAll('.tab-panel');
-    
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        // Deactivate all tabs and panels
-        tabs.forEach(t => t.classList.remove('active'));
-        panels.forEach(p => p.classList.remove('active'));
-        
-        // Activate clicked tab and corresponding panel
-        tab.classList.add('active');
-        const tabName = tab.getAttribute('data-tab');
-        document.getElementById(`${tabName}-panel`).classList.add('active');
-      });
-    });
-    
-    // Clear history
-    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-    if (clearHistoryBtn) {
-      clearHistoryBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to clear your entire search history?')) {
-          try {
-            const response = await fetch('/api/history/clear', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (response.ok) {
-              window.location.reload();
-            } else {
-              alert('Failed to clear history');
-            }
-          } catch (error) {
-            console.error('Error clearing history:', error);
-            alert('An error occurred');
-          }
-        }
-      });
-    }
-    
-    // Search Details Modal
-    const modal = document.getElementById('searchDetailsModal');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalBody = document.getElementById('modalBody');
-    const modalClose = document.querySelector('.modal-close');
-    
-    // Close modal when clicking the X
-    if (modalClose) {
-      modalClose.addEventListener('click', () => {
-        modal.style.display = 'none';
-      });
-    }
-    
-    // Close modal when clicking outside of it
-    window.addEventListener('click', (event) => {
-      if (event.target === modal) {
-        modal.style.display = 'none';
-      }
-    });
-    
-    // View search details
-    document.querySelectorAll('.view-details').forEach(button => {
-      button.addEventListener('click', async () => {
-        const searchId = button.getAttribute('data-id');
-        
-        // Show loading in modal
-        modalTitle.textContent = 'Loading Search Results';
-        modalBody.innerHTML = `
-          <div class="loading">
-            <div class="spinner"></div>
-            <p>Loading results...</p>
-          </div>
-        `;
-        modal.style.display = 'block';
-        
-        try {
-          const response = await fetch(`/api/history/${searchId}`);
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch search details');
-          }
-          
-          const data = await response.json();
-          const search = data.search;
-          
-          // Update modal title
-          modalTitle.textContent = `${search.search_type.charAt(0).toUpperCase() + search.search_type.slice(1)} Search: ${search.query}`;
-          
-          // Format content based on search type
-          let content = '';
-          
-          if (search.search_type === 'academic') {
-            content = `
-              <div class="search-details-header">
-                <div class="search-time">${new Date(search.timestamp).toLocaleString()}</div>
-                <div class="search-query">${search.query}</div>
-              </div>
-              <div class="search-answer academic-analysis">
-                ${marked.parse(search.answer || 'No analysis available.')}
-              </div>
-            `;
-            
-            if (search.papers && search.papers.length > 0) {
-              content += `<h3>Papers</h3><div class="paper-list">`;
-              search.papers.forEach(paper => {
-                content += `
-                  <div class="paper-item">
-                    <div class="paper-title">${escapeHtml(paper.title)}</div>
-                    <div class="paper-authors">Authors: ${escapeHtml(paper.authors)}</div>
-                    <div>Published: ${escapeHtml(paper.published)}</div>
-                    <div class="paper-summary">${escapeHtml(paper.summary.substring(0, 200))}${paper.summary.length > 200 ? '...' : ''}</div>
-                    <a class="paper-link" href="${paper.pdf_url}" target="_blank">View PDF</a>
-                  </div>
-                `;
-              });
-              content += `</div>`;
-            }
-          } else {
-            // For regular and deep search types
-            content = `
-              <div class="search-details-header">
-                <div class="search-time">${new Date(search.timestamp).toLocaleString()}</div>
-                <div class="search-query">${search.query}</div>
-              </div>
-              <div class="search-answer">
-                <h3>AI Analysis</h3>
-                ${marked.parse(search.answer || 'No analysis available.')}
-              </div>
-            `;
-            
-            if (search.search_results && search.search_results.length > 0) {
-              content += `<h3>Search Results</h3><ul class="search-results-list">`;
-              search.search_results.forEach(result => {
-                content += `
-                  <li class="search-result-item">
-                    <strong>${escapeHtml(result.title || 'No title')}</strong>
-                    <p>${escapeHtml(result.body || 'No snippet available')}</p>
-                    <a href="${result.href}" target="_blank" rel="noopener noreferrer">${result.href}</a>
-                  </li>
-                `;
-              });
-              content += `</ul>`;
-            }
-          }
-          
-          modalBody.innerHTML = content;
-          
-        } catch (error) {
-          console.error('Error fetching search details:', error);
-          modalBody.innerHTML = `
-            <div class="error">
-              <p>Failed to load search results: ${error.message}</p>
-            </div>
-          `;
-        }
-      });
-    });
-    
-    // Repeat search
-    document.querySelectorAll('.repeat-search').forEach(button => {
-      button.addEventListener('click', () => {
-        const query = button.getAttribute('data-query');
-        const type = button.getAttribute('data-type');
-        
-        // Redirect to home with search parameters
-        window.location.href = `/?query=${encodeURIComponent(query)}&type=${type}`;
-      });
-    });
-    
-    // Add to favorites
-    document.querySelectorAll('.add-favorite').forEach(button => {
-      button.addEventListener('click', async () => {
-        const query = button.getAttribute('data-query');
-        const type = button.getAttribute('data-type');
-        
-        const name = prompt('Enter a name for this favorite:');
-        if (!name) return;
-        
-        try {
-          const response = await fetch('/api/favorites/add', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              name,
-              query,
-              search_type: type
-            })
-          });
-          
-          if (response.ok) {
-            alert('Added to favorites!');
-            // Optionally reload or update UI
-          } else {
-            alert('Failed to add to favorites');
-          }
-        } catch (error) {
-          console.error('Error adding favorite:', error);
-          alert('An error occurred');
-        }
-      });
-    });
-    
-    // Remove favorite
-    document.querySelectorAll('.remove-favorite').forEach(button => {
-      button.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to remove this favorite?')) {
-          const favoriteId = button.getAttribute('data-id');
-          
-          try {
-            const response = await fetch('/api/favorites/remove', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                favorite_id: favoriteId
-              })
-            });
-            
-            if (response.ok) {
-              // Remove from UI
-              button.closest('.favorite-card').remove();
-              
-              // Show empty state if no favorites left
-              if (document.querySelectorAll('.favorite-card').length === 0) {
-                document.getElementById('favorites-panel').innerHTML = `
-                  <div class="empty-state">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                    </svg>
-                    <h3>No Favorites Yet</h3>
-                    <p>Add searches to your favorites to see them here</p>
-                  </div>
-                `;
-              }
-            } else {
-              alert('Failed to remove favorite');
-            }
-          } catch (error) {
-            console.error('Error removing favorite:', error);
-            alert('An error occurred');
-          }
-        }
-      });
-    });
-    
-    // Use recommendation
-    document.querySelectorAll('.use-recommendation').forEach(button => {
-      button.addEventListener('click', () => {
-        const query = button.getAttribute('data-query');
-        const type = button.getAttribute('data-type');
-        
-        // Redirect to home with search parameters
-        window.location.href = `/?query=${encodeURIComponent(query)}&type=${type}`;
-      });
-    });
+    <h1 class="profile-name">{{ user.name or user.username }}</h1>
+    <p class="profile-email">{{ user.email }}</p>
+    <span class="profile-badge">
+      <i class="fas fa-{{ 'envelope' if user.provider == 'email' else 'github' if user.provider == 'github' else 'google' }}"></i>
+      {{ user.provider|capitalize }} Account
+    </span>
+  </div>
 
-    // Helper function to escape HTML
-    function escapeHtml(text) {
-      if (!text) return '';
-      const element = document.createElement("div");
-      element.innerText = text;
-      return element.innerHTML;
+  <!-- Content -->
+  <div class="profile-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">
+            <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }}"></i>
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">
+          <i class="fas fa-search"></i>
+        </div>
+        <p class="stat-value" id="searchCount">-</p>
+        <p class="stat-label">Total Searches</p>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon">
+          <i class="fas fa-file-pdf"></i>
+        </div>
+        <p class="stat-value" id="documentCount">-</p>
+        <p class="stat-label">PDF Documents</p>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon">
+          <i class="fas fa-calendar"></i>
+        </div>
+        <p class="stat-value">{{ user.created_at.strftime('%b %Y') if user.created_at else '-' }}</p>
+        <p class="stat-label">Member Since</p>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon">
+          <i class="fas fa-clock"></i>
+        </div>
+        <p class="stat-value">{{ user.last_login.strftime('%d %b') if user.last_login else '-' }}</p>
+        <p class="stat-label">Last Login</p>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="history-container">
+      <div class="history-header">
+        <h3><i class="fas fa-history"></i> Recent Search History</h3>
+        <button class="btn-secondary btn-sm" onclick="window.location.href='/'">
+          <i class="fas fa-search"></i> New Search
+        </button>
+      </div>
+      <div id="recentHistory" class="history-list">
+        <div class="loading">Loading recent activity...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadProfileData() {
+      try {
+        // Load search history count
+        const historyResponse = await fetch('/api/user/search-history?limit=5');
+        const historyData = await historyResponse.json();
+        
+        if (historyData.success) {
+          document.getElementById('searchCount').textContent = historyData.history.length;
+          
+          // Display recent searches
+          const historyList = document.getElementById('recentHistory');
+          if (historyData.history.length === 0) {
+            historyList.innerHTML = `
+              <div class="no-results">
+                <i class="fas fa-search"></i>
+                <p>No search history yet. Start searching to see your activity here!</p>
+              </div>
+            `;
+          } else {
+            historyList.innerHTML = historyData.history.map(item => `
+              <div class="history-item" onclick="window.location.href='/?q=${encodeURIComponent(item.query)}'">
+                <div class="history-item-header">
+                  <h4>${escapeHtml(item.query)}</h4>
+                  <span class="history-item-date">${formatDate(item.timestamp)}</span>
+                </div>
+                <div class="history-item-meta">
+                  <span class="badge">${item.search_type}</span>
+                  <span class="badge-secondary">${item.results_count} results</span>
+                </div>
+              </div>
+            `).join('');
+          }
+        }
+        
+        // Load documents count
+        const docsResponse = await fetch('/api/user-documents');
+        const docsData = await docsResponse.json();
+        
+        if (docsData.success) {
+          document.getElementById('documentCount').textContent = docsData.documents.length;
+        }
+        
+      } catch (error) {
+        console.error('Error loading profile data:', error);
+      }
     }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diff = now - date;
+      
+      if (diff < 60000) return 'Just now';
+      if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
+      if (diff < 604800000) return `${Math.floor(diff / 86400000)} days ago`;
+      
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function escapeHtml(text) {
+      const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'};
+      return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // Load profile data on page load
+    document.addEventListener('DOMContentLoaded', loadProfileData);
   </script>
 </body>
-</html> 
+</html>

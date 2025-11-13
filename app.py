@@ -6,6 +6,7 @@ Focused on academic paper search, analysis, and access through Sci-Hub
 
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, make_response
 from flask_cors import CORS
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -18,12 +19,24 @@ import json
 import logging
 from typing import Dict, List, Optional
 import time
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 # Import our Sci-Hub integration
 from utils.scihub_api import scihub_api
 
 # Import multi-source API integration
 from utils.multi_source_api import multi_source_api
+
+# Import models
+from models import User, SearchHistory
+
+# Import RAG system and document processor
+from utils.rag_system import RAGSystem
+from utils.document_processor import document_processor
+
+# Initialize RAG system
+rag_system = RAGSystem()
 
 # Load environment variables
 load_dotenv()
@@ -35,6 +48,31 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 app.secret_key = os.getenv("SECRET_KEY", "sentino-academic-research-key")
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please login to access this feature'
+
+# Initialize MongoDB
+try:
+    mongo_client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"))
+    db = mongo_client.get_database("sentino")
+    logger.info("MongoDB connection established")
+except Exception as e:
+    logger.error(f"MongoDB connection error: {e}")
+    db = None
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user from database for Flask-Login"""
+    if db is None:
+        return None
+    try:
+        return User.get_by_id(db, user_id)
+    except:
+        return None
 
 # Configuration
 PAPERS_PER_PAGE = 20
@@ -440,6 +478,163 @@ def index():
     """Main academic research interface"""
     return render_template('academic_research.html')
 
+# Authentication Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page and handler"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        email_or_username = request.form.get('email_or_username', '').strip()
+        password = request.form.get('password', '')
+        
+        if not email_or_username or not password:
+            flash('Please provide email/username and password', 'error')
+            return render_template('login.html')
+        
+        # Try to find user by email or username
+        user = None
+        if '@' in email_or_username:
+            user = User.get_by_email(db, email_or_username)
+        else:
+            user_data = db.users.find_one({'username': email_or_username})
+            if user_data:
+                user = User(user_data)
+        
+        if user and user.check_password(password):
+            login_user(user, remember=True)
+            # Update last login
+            db.users.update_one(
+                {'_id': ObjectId(user.get_id())},
+                {'$set': {'last_login': datetime.utcnow()}}
+            )
+            flash('Login successful!', 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page if next_page else url_for('index'))
+        else:
+            flash('Invalid credentials', 'error')
+    
+    return render_template('login.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    """Signup page and handler"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validation
+        if not all([username, email, password, confirm_password]):
+            flash('All fields are required', 'error')
+            return render_template('signup.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('signup.html')
+        
+        if len(password) < 8:
+            flash('Password must be at least 8 characters', 'error')
+            return render_template('signup.html')
+        
+        # Create user
+        user, error = User.create_user(db, email, username, password)
+        if error:
+            flash(error, 'error')
+            return render_template('signup.html')
+        
+        if user:
+            login_user(user, remember=True)
+            flash('Account created successfully!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Failed to create account', 'error')
+    
+    return render_template('signup.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Logout handler"""
+    logout_user()
+    flash('You have been logged out', 'info')
+    return redirect(url_for('index'))
+
+@app.route('/profile')
+@login_required
+def profile():
+    """User profile page"""
+    return render_template('profile.html', user=current_user)
+
+@app.route('/settings')
+@login_required
+def settings():
+    """Account settings page"""
+    return render_template('account_settings.html', user=current_user)
+
+@app.route('/account/update', methods=['POST'])
+@login_required
+def update_account():
+    """Update user account information"""
+    try:
+        username = request.form.get('username', '').strip()
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        
+        # Update user profile
+        success, error = current_user.update_profile(
+            db, 
+            username=username if username else None,
+            name=name if name else None,
+            email=email if email else None
+        )
+        
+        if success:
+            flash('Profile updated successfully', 'success')
+        else:
+            flash(error or 'Failed to update profile', 'error')
+            
+        return redirect(url_for('settings'))
+    except Exception as e:
+        logger.error(f"Error updating account: {e}")
+        flash('An error occurred while updating your profile', 'error')
+        return redirect(url_for('settings'))
+
+@app.route('/account/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """Change user password"""
+    try:
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        if new_password != confirm_password:
+            flash('New passwords do not match', 'error')
+            return redirect(url_for('settings'))
+        
+        if len(new_password) < 8:
+            flash('Password must be at least 8 characters', 'error')
+            return redirect(url_for('settings'))
+        
+        success, error = current_user.change_password(db, current_password, new_password)
+        
+        if success:
+            flash('Password changed successfully', 'success')
+        else:
+            flash(error or 'Failed to change password', 'error')
+            
+        return redirect(url_for('settings'))
+    except Exception as e:
+        logger.error(f"Error changing password: {e}")
+        flash('An error occurred while changing your password', 'error')
+        return redirect(url_for('settings'))
+
 @app.route('/api/academic-search', methods=['POST'])
 def academic_search():
     """Enhanced academic search with multi-source integration and AI analysis"""
@@ -523,6 +718,23 @@ def academic_search():
         # AI analysis of papers
         unique_papers, ai_analysis = analyze_papers_with_ai(unique_papers, query)
         
+        # Save search history if user is logged in
+        if current_user.is_authenticated:
+            try:
+                SearchHistory.add_search(
+                    db,
+                    current_user.get_id(),
+                    query,
+                    'academic',
+                    len(unique_papers),
+                    unique_papers[:10],  # Save first 10 papers
+                    ai_analysis,
+                    None
+                )
+                logger.info(f"Saved search history for user {current_user.get_id()}")
+            except Exception as e:
+                logger.error(f"Failed to save search history: {e}")
+        
         return jsonify({
             "success": True,
             "papers": unique_papers,
@@ -531,12 +743,63 @@ def academic_search():
             "scihub_stats": scihub_stats,
             "query": query,
             "sort_by": sort_by,
-            "sources_used": sources
+            "sources_used": sources,
+            "user_authenticated": current_user.is_authenticated
         })
             
     except Exception as e:
         logger.error(f"Error in academic search: {str(e)}")
         return jsonify({"error": "Search failed"}), 500
+
+# User API Routes
+@app.route('/api/user/info', methods=['GET'])
+def get_user_info():
+    """Get current user information"""
+    if current_user.is_authenticated:
+        return jsonify({
+            "authenticated": True,
+            "user": {
+                "id": current_user.get_id(),
+                "username": current_user.username,
+                "email": current_user.email,
+                "name": current_user.name
+            }
+        })
+    return jsonify({"authenticated": False})
+
+@app.route('/api/user/search-history', methods=['GET'])
+@login_required
+def get_search_history():
+    """Get user's search history"""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        history = SearchHistory.get_user_history(db, current_user.get_id(), limit)
+        
+        # Convert ObjectId to string for JSON serialization
+        for item in history:
+            item['_id'] = str(item['_id'])
+            item['user_id'] = str(item['user_id'])
+            if 'timestamp' in item:
+                item['timestamp'] = item['timestamp'].isoformat()
+        
+        return jsonify({
+            "success": True,
+            "history": history
+        })
+    except Exception as e:
+        logger.error(f"Error fetching search history: {e}")
+        return jsonify({"error": "Failed to fetch search history"}), 500
+
+@app.route('/api/user/clear-history', methods=['POST'])
+@login_required
+def clear_search_history():
+    """Clear user's search history"""
+    try:
+        SearchHistory.clear_history(db, current_user.get_id())
+        return jsonify({"success": True, "message": "Search history cleared"})
+    except Exception as e:
+        logger.error(f"Error clearing search history: {e}")
+        return jsonify({"error": "Failed to clear history"}), 500
 
 @app.route('/api/sources', methods=['GET'])
 def get_available_sources():
@@ -2067,6 +2330,146 @@ The ultimate goal is to develop a comprehensive understanding of {research_quest
     
     return "\n".join(template_sections)
 
+@app.route('/api/quick-search', methods=['POST'])
+def quick_search():
+    """Quick search with AI - fast answers to general questions"""
+    try:
+        data = request.json
+        query = data.get('query', '').strip()
+        
+        if not query:
+            return jsonify({"error": "Query is required"}), 400
+        
+        logger.info(f"Quick search: {query}")
+        
+        # Create a focused prompt for quick answers
+        quick_prompt = f"""Provide a clear, concise answer to this question: "{query}"
+
+Instructions:
+- Give a direct answer in 2-3 paragraphs
+- Be factual and accurate
+- Include key points only
+- Use simple language
+- If unsure, state limitations
+
+Answer:"""
+        
+        answer = query_gemini(quick_prompt)
+        
+        if not answer:
+            return jsonify({"error": "Failed to generate answer"}), 500
+        
+        # Save to search history if user is logged in
+        if current_user.is_authenticated:
+            try:
+                SearchHistory.add_search(
+                    db,
+                    current_user.get_id(),
+                    query,
+                    'quick',
+                    0,
+                    [],
+                    answer,
+                    None
+                )
+            except Exception as e:
+                logger.error(f"Failed to save quick search history: {e}")
+        
+        return jsonify({
+            "success": True,
+            "answer": answer,
+            "query": query
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in quick search: {e}")
+        return jsonify({"error": "Quick search failed"}), 500
+
+@app.route('/api/deep-analysis', methods=['POST'])
+def deep_analysis():
+    """Deep analysis with comprehensive insights"""
+    try:
+        data = request.json
+        query = data.get('query', '').strip()
+        
+        if not query:
+            return jsonify({"error": "Query is required"}), 400
+        
+        logger.info(f"Deep analysis: {query}")
+        
+        # Create comprehensive analysis prompt
+        deep_prompt = f"""Perform a comprehensive deep analysis on: "{query}"
+
+Provide a thorough analysis covering:
+
+**1. OVERVIEW**
+- Main concept and context
+- Significance and relevance
+- Current state of understanding
+
+**2. KEY PERSPECTIVES**
+- Multiple viewpoints and approaches
+- Expert opinions and theories
+- Contrasting ideas and debates
+
+**3. DETAILED ANALYSIS**
+- Core components and elements
+- Relationships and connections
+- Underlying principles
+
+**4. CHALLENGES & OPPORTUNITIES**
+- Current challenges and limitations
+- Potential solutions and innovations
+- Future possibilities
+
+**5. PRACTICAL IMPLICATIONS**
+- Real-world applications
+- Impact on different stakeholders
+- Implementation considerations
+
+**6. CRITICAL EVALUATION**
+- Strengths and advantages
+- Weaknesses and limitations
+- Areas needing further research
+
+**7. CONCLUSIONS**
+- Key takeaways
+- Recommendations
+- Future outlook
+
+Provide a detailed, well-structured analysis with specific examples and evidence."""
+        
+        analysis = query_gemini(deep_prompt)
+        
+        if not analysis:
+            return jsonify({"error": "Failed to generate analysis"}), 500
+        
+        # Save to search history if user is logged in
+        if current_user.is_authenticated:
+            try:
+                SearchHistory.add_search(
+                    db,
+                    current_user.get_id(),
+                    query,
+                    'deep',
+                    0,
+                    [],
+                    analysis,
+                    None
+                )
+            except Exception as e:
+                logger.error(f"Failed to save deep analysis history: {e}")
+        
+        return jsonify({
+            "success": True,
+            "analysis": analysis,
+            "query": query
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in deep analysis: {e}")
+        return jsonify({"error": "Deep analysis failed"}), 500
+
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
@@ -2078,6 +2481,193 @@ def health_check():
             "gemini": os.getenv("GEMINI_API_KEY") is not None
         }
     })
+
+# PDF Analysis Routes
+@app.route('/pdf-analysis')
+@login_required
+def pdf_analysis_page():
+    """PDF analysis page"""
+    return render_template('pdf_analysis.html', user=current_user)
+
+@app.route('/api/upload-pdf', methods=['POST'])
+@login_required
+def upload_pdf():
+    """Upload and process PDF for analysis"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        if not file.filename.endswith('.pdf'):
+            return jsonify({"error": "Only PDF files are supported"}), 400
+        
+        # Process the PDF
+        logger.info(f"Processing PDF: {file.filename}")
+        result = document_processor.process_document(file, current_user.get_id())
+        
+        if result:
+            # Store document info in session or database
+            doc_id = str(ObjectId())
+            
+            # Save to database
+            db.documents.insert_one({
+                '_id': ObjectId(doc_id),
+                'user_id': ObjectId(current_user.get_id()),
+                'filename': file.filename,
+                'uploaded_at': datetime.utcnow(),
+                'chunks': result.get('chunks', []),
+                'total_chunks': result.get('total_chunks', 0),
+                'total_tokens': result.get('total_tokens', 0),
+                'metadata': result.get('metadata', {})
+            })
+            
+            return jsonify({
+                "success": True,
+                "document_id": doc_id,
+                "filename": file.filename,
+                "total_chunks": result.get('total_chunks', 0),
+                "total_tokens": result.get('total_tokens', 0),
+                "message": "PDF processed successfully"
+            })
+        else:
+            return jsonify({"error": "Failed to process PDF"}), 500
+            
+    except Exception as e:
+        logger.error(f"Error uploading PDF: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/analyze-pdf', methods=['POST'])
+@login_required
+def analyze_pdf():
+    """Analyze PDF content with AI"""
+    try:
+        data = request.json
+        document_id = data.get('document_id')
+        query = data.get('query', '').strip()
+        
+        if not document_id:
+            return jsonify({"error": "Document ID required"}), 400
+        
+        # Get document from database
+        doc = db.documents.find_one({
+            '_id': ObjectId(document_id),
+            'user_id': ObjectId(current_user.get_id())
+        })
+        
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+        
+        chunks = doc.get('chunks', [])
+        
+        if not query:
+            # Generate summary if no specific query
+            query = "Please provide a comprehensive summary of this document, including main topics, key findings, and important concepts."
+        
+        # Use RAG system to generate response
+        response = rag_system.generate_response(
+            query=query,
+            document_chunks=chunks,
+            conversation_history=[]
+        )
+        
+        return jsonify({
+            "success": True,
+            "response": response.get('response', ''),
+            "relevant_chunks": response.get('relevant_chunks', []),
+            "confidence": response.get('confidence', 0.0)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error analyzing PDF: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/chat-with-pdf', methods=['POST'])
+@login_required
+def chat_with_pdf():
+    """Chat with PDF using RAG"""
+    try:
+        data = request.json
+        document_id = data.get('document_id')
+        question = data.get('question', '').strip()
+        conversation_history = data.get('conversation_history', [])
+        
+        if not document_id or not question:
+            return jsonify({"error": "Document ID and question required"}), 400
+        
+        # Get document from database
+        doc = db.documents.find_one({
+            '_id': ObjectId(document_id),
+            'user_id': ObjectId(current_user.get_id())
+        })
+        
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+        
+        chunks = doc.get('chunks', [])
+        
+        # Generate response using RAG
+        response = rag_system.generate_response(
+            query=question,
+            document_chunks=chunks,
+            conversation_history=conversation_history
+        )
+        
+        return jsonify({
+            "success": True,
+            "answer": response.get('response', ''),
+            "sources": response.get('relevant_chunks', []),
+            "confidence": response.get('confidence', 0.0)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in PDF chat: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/user-documents', methods=['GET'])
+@login_required
+def get_user_documents():
+    """Get list of user's uploaded documents"""
+    try:
+        documents = list(db.documents.find({
+            'user_id': ObjectId(current_user.get_id())
+        }).sort('uploaded_at', -1))
+        
+        # Convert ObjectId to string for JSON serialization
+        for doc in documents:
+            doc['_id'] = str(doc['_id'])
+            doc['user_id'] = str(doc['user_id'])
+            doc['uploaded_at'] = doc['uploaded_at'].isoformat()
+        
+        return jsonify({
+            "success": True,
+            "documents": documents
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting documents: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/delete-document/<document_id>', methods=['DELETE'])
+@login_required
+def delete_document(document_id):
+    """Delete a document"""
+    try:
+        result = db.documents.delete_one({
+            '_id': ObjectId(document_id),
+            'user_id': ObjectId(current_user.get_id())
+        })
+        
+        if result.deleted_count > 0:
+            return jsonify({"success": True, "message": "Document deleted"})
+        else:
+            return jsonify({"error": "Document not found"}), 404
+            
+    except Exception as e:
+        logger.error(f"Error deleting document: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))

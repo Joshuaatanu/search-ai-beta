@@ -4,21 +4,72 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login - Sentino AI</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="stylesheet" href="/static/css/auth.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/academic.css') }}">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .auth-container {
+      max-width: 480px;
+      width: 100%;
+    }
+    .auth-card {
+      background: var(--surface-color);
+      border-radius: var(--border-radius-xl);
+      box-shadow: var(--shadow-xl);
+      padding: 2.5rem;
+      animation: fadeInUp 0.5s ease-out;
+    }
+    .auth-logo {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .auth-logo i {
+      font-size: 3rem;
+      color: var(--primary-color);
+      margin-bottom: 0.5rem;
+    }
+    .auth-logo h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0;
+    }
+    .auth-logo p {
+      color: var(--text-secondary);
+      margin: 0.5rem 0 0 0;
+    }
+  </style>
 </head>
 <body>
   <div class="auth-container">
     <div class="auth-card">
-      <div class="auth-header">
-        <h1>Welcome to Sentino AI</h1>
-        <p>Sign in to save your searches and get personalized recommendations</p>
+      <div class="auth-logo">
+        <i class="fas fa-graduation-cap"></i>
+        <h1>Sentino AI</h1>
+        <p>Sign in to save your searches and access personalized features</p>
       </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+              <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }}"></i>
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
       
       <div class="auth-form">
-        <form action="/login/email" method="POST" id="loginForm">
+        <form action="{{ url_for('login') }}" method="POST" id="loginForm">
           <div class="form-group">
             <label for="email_or_username">Email or Username</label>
             <input type="text" id="email_or_username" name="email_or_username" required>
@@ -32,27 +83,21 @@
             </div>
           </div>
           
-          <button type="submit" class="submit-button">Sign In</button>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.75rem; font-size: 1rem; margin-top: 1rem;">
+            <i class="fas fa-sign-in-alt"></i> Sign In
+          </button>
         </form>
       </div>
       
-      <div class="auth-separator">
-        <span>OR</span>
-      </div>
-      
-      <div class="auth-methods">
-        <a href="/login/github" class="social-login-button github">
-          <svg viewBox="0 0 24 24" width="24" height="24">
-            <path d="M12 1.27a11 11 0 00-3.48 21.46c.55.09.73-.24.73-.53v-1.86c-3.03.66-3.67-1.46-3.67-1.46-.5-1.28-1.22-1.62-1.22-1.62-1-.68.07-.67.07-.67 1.1.08 1.68 1.14 1.68 1.14.98 1.68 2.57 1.19 3.2.91.1-.71.38-1.2.7-1.47-2.47-.28-5.08-1.24-5.08-5.5 0-1.22.44-2.22 1.14-3-.12-.28-.5-1.4.1-2.92 0 0 .93-.3 3.05 1.14a10.65 10.65 0 015.68 0c2.11-1.44 3.04-1.14 3.04-1.14.6 1.52.22 2.64.1 2.92.7.78 1.13 1.78 1.13 3 0 4.28-2.6 5.22-5.08 5.5.38.33.73.97.73 1.96v2.92c0 .29.18.63.74.52A11 11 0 0012 1.27"/>
-          </svg>
-          <span>Continue with GitHub</span>
-        </a>
-      </div>
-      
-      <div class="auth-footer">
-        <p>Don't have an account? <a href="/signup">Sign Up</a></p>
-        <p>By continuing, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</p>
-        <a href="/" class="back-home">Back to Home</a>
+      <div class="auth-footer" style="text-align: center; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+          Don't have an account? <a href="{{ url_for('signup') }}" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Sign Up</a>
+        </p>
+        <p style="margin-bottom: 1rem;">
+          <a href="/" class="btn-secondary" style="text-decoration: none;">
+            <i class="fas fa-arrow-left"></i> Back to Home
+          </a>
+        </p>
       </div>
     </div>
   </div>

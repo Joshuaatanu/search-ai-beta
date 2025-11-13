@@ -1,0 +1,172 @@
+<!-- Unified Header Component for All Pages -->
+<header class="app-header">
+    <div class="header-container">
+        <!-- Logo -->
+        <a href="/" class="logo">
+            <i class="fas fa-graduation-cap"></i>
+            <span>Sentino AI</span>
+        </a>
+        
+        <!-- Main Navigation -->
+        <nav class="main-nav" id="mainNav">
+            <a href="/" class="nav-link" data-page="home">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="/#papers" class="nav-link" data-page="papers" onclick="event.preventDefault(); navigateToSection('papers');">
+                <i class="fas fa-graduation-cap"></i>
+                <span>Papers</span>
+            </a>
+            <a href="/#quick" class="nav-link" data-page="quick" onclick="event.preventDefault(); showQuickSearch();">
+                <i class="fas fa-bolt"></i>
+                <span>Quick</span>
+            </a>
+            <a href="/#deep" class="nav-link" data-page="deep" onclick="event.preventDefault(); showDeepAnalysis();">
+                <i class="fas fa-brain"></i>
+                <span>Deep</span>
+            </a>
+            <a href="/pdf-analysis" class="nav-link" data-page="pdf">
+                <i class="fas fa-file-pdf"></i>
+                <span>PDF</span>
+            </a>
+        </nav>
+        
+        <!-- Header Actions -->
+        <div class="header-actions">
+            {% if current_user.is_authenticated %}
+                <!-- Search History Button -->
+                <button class="search-trigger" onclick="toggleHistory()" title="Search History">
+                    <i class="fas fa-history"></i>
+                </button>
+                
+                <!-- User Menu -->
+                <div class="user-menu" id="userMenu">
+                    <button class="user-trigger" onclick="toggleUserMenu()">
+                        {% if current_user.profile_pic %}
+                            <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.profile_pic) }}" 
+                                 alt="{{ current_user.username }}" 
+                                 class="avatar">
+                        {% else %}
+                            <div class="avatar" style="background: var(--primary-blue); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600;">
+                                {{ current_user.username[0].upper() }}
+                            </div>
+                        {% endif %}
+                        <span class="username">{{ current_user.username }}</span>
+                        <i class="fas fa-chevron-down" style="font-size: 0.75rem;"></i>
+                    </button>
+                    <div class="user-dropdown" id="userDropdown">
+                        <a href="/profile">
+                            <i class="fas fa-user"></i>
+                            Profile
+                        </a>
+                        <a href="/settings">
+                            <i class="fas fa-cog"></i>
+                            Settings
+                        </a>
+                        <a href="#" onclick="event.preventDefault(); toggleHistory();">
+                            <i class="fas fa-history"></i>
+                            History
+                        </a>
+                        <hr>
+                        <a href="/logout">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Logout
+                        </a>
+                    </div>
+                </div>
+            {% else %}
+                <!-- Not Logged In -->
+                <a href="/login" class="btn btn-outline btn-sm">
+                    <i class="fas fa-sign-in-alt"></i>
+                    <span class="mobile-hidden">Login</span>
+                </a>
+                <a href="/signup" class="btn btn-primary btn-sm">
+                    <i class="fas fa-user-plus"></i>
+                    <span class="mobile-hidden">Sign Up</span>
+                </a>
+            {% endif %}
+            
+            <!-- Mobile Menu Toggle -->
+            <button class="mobile-toggle" onclick="toggleMobileMenu()" aria-label="Toggle navigation">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- Unified Navigation JavaScript -->
+<script>
+// Toggle mobile menu
+function toggleMobileMenu() {
+    const nav = document.getElementById('mainNav');
+    if (nav) {
+        nav.classList.toggle('mobile-open');
+        
+        // Update icon
+        const toggleBtn = document.querySelector('.mobile-toggle i');
+        if (toggleBtn) {
+            if (nav.classList.contains('mobile-open')) {
+                toggleBtn.className = 'fas fa-times';
+            } else {
+                toggleBtn.className = 'fas fa-bars';
+            }
+        }
+    }
+}
+
+// Toggle user menu
+function toggleUserMenu() {
+    const userMenu = document.getElementById('userMenu');
+    if (userMenu) {
+        userMenu.classList.toggle('active');
+    }
+}
+
+// Close user menu when clicking outside
+document.addEventListener('click', function(event) {
+    const userMenu = document.getElementById('userMenu');
+    if (userMenu && !userMenu.contains(event.target)) {
+        userMenu.classList.remove('active');
+    }
+});
+
+// Navigate to section (for home page)
+function navigateToSection(section) {
+    // If on home page, scroll to section
+    if (window.location.pathname === '/' || window.location.pathname === '/academic-research') {
+        const searchSection = document.querySelector('.search-section');
+        if (searchSection) {
+            searchSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    } else {
+        // Otherwise, go to home page with hash
+        window.location.href = '/#' + section;
+    }
+    
+    // Close mobile menu
+    const nav = document.getElementById('mainNav');
+    if (nav && nav.classList.contains('mobile-open')) {
+        toggleMobileMenu();
+    }
+}
+
+// Set active nav link based on current page
+document.addEventListener('DOMContentLoaded', function() {
+    const currentPath = window.location.pathname;
+    const navLinks = document.querySelectorAll('.nav-link');
+    
+    navLinks.forEach(link => {
+        const linkPath = link.getAttribute('href');
+        if (linkPath === currentPath) {
+            link.classList.add('active');
+        }
+    });
+});
+</script>
+
+
+
+
+
+
+

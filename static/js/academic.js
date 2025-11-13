@@ -10,6 +10,182 @@ class AcademicResearchApp {
     init() {
         this.bindEvents();
         this.loadTrendingTopics();
+        this.checkUserAuth();
+    }
+
+    async checkUserAuth() {
+        try {
+            const response = await fetch('/api/user/info');
+            const data = await response.json();
+            
+            // Store authentication status for use in other methods
+            // Note: User UI is now rendered server-side in components/header.html
+            // This method now only stores the auth state for JavaScript logic
+            if (data.authenticated) {
+                this.userAuthenticated = true;
+                this.currentUser = data.user;
+            } else {
+                this.userAuthenticated = false;
+                this.currentUser = null;
+            }
+        } catch (error) {
+            console.error('Error checking user auth:', error);
+            this.userAuthenticated = false;
+            this.currentUser = null;
+        }
+    }
+
+    toggleUserDropdown() {
+        const dropdown = document.getElementById('userDropdown');
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async toggleHistory() {
+        const historySection = document.getElementById('historySection');
+        if (historySection.style.display === 'none') {
+            historySection.style.display = 'block';
+            await this.loadSearchHistory();
+        } else {
+            historySection.style.display = 'none';
+        }
+    }
+
+    async loadSearchHistory() {
+        const historyList = document.getElementById('historyList');
+        historyList.innerHTML = '<div class="loading">Loading your search history...</div>';
+        
+        try {
+            const response = await fetch('/api/user/search-history?limit=20');
+            if (!response.ok) {
+                throw new Error('Failed to load history');
+            }
+            
+            const data = await response.json();
+            
+            if (data.history.length === 0) {
+                historyList.innerHTML = `
+                    <div class="no-results">
+                        <i class="fas fa-history"></i>
+                        <p>No search history yet. Start searching to see your history here!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            historyList.innerHTML = data.history.map(item => `
+                <div class="history-item" onclick="app.loadHistorySearch('${item.query}')">
+                    <div class="history-item-header">
+                        <h4>${this.escapeHtml(item.query)}</h4>
+                        <span class="history-item-date">${this.formatDate(item.timestamp)}</span>
+                    </div>
+                    <div class="history-item-meta">
+                        <span class="badge">${item.search_type}</span>
+                        <span class="badge-secondary">${item.results_count} results</span>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('Error loading search history:', error);
+            historyList.innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>Failed to load search history. Please try again.</p>
+                </div>
+            `;
+        }
+    }
+
+    loadHistorySearch(query) {
+        document.getElementById('searchQuery').value = query;
+        document.getElementById('historySection').style.display = 'none';
+        this.performSearch();
+    }
+
+    async clearSearchHistory() {
+        if (!confirm('Are you sure you want to clear your search history? This cannot be undone.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/user/clear-history', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                await this.loadSearchHistory();
+                this.showNotification('Search history cleared', 'success');
+            } else {
+                throw new Error('Failed to clear history');
+            }
+        } catch (error) {
+            console.error('Error clearing search history:', error);
+            this.showNotification('Failed to clear history', 'error');
+        }
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    formatDate(dateString) {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diff = now - date;
+        
+        // Less than a minute
+        if (diff < 60000) {
+            return 'Just now';
+        }
+        // Less than an hour
+        if (diff < 3600000) {
+            const minutes = Math.floor(diff / 60000);
+            return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+        }
+        // Less than a day
+        if (diff < 86400000) {
+            const hours = Math.floor(diff / 3600000);
+            return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+        }
+        // Less than a week
+        if (diff < 604800000) {
+            const days = Math.floor(diff / 86400000);
+            return `${days} day${days > 1 ? 's' : ''} ago`;
+        }
+        
+        // Format as date
+        return date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
+        });
+    }
+
+    showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
     }
 
     bindEvents() {
@@ -86,6 +262,11 @@ class AcademicResearchApp {
                 this.displayResults(data);
                 this.showResearchSuggestionsButton();
                 this.displaySourcesUsed(data.sources_used);
+                
+                // Show notification if search was saved (user is logged in)
+                if (data.user_authenticated) {
+                    this.showNotification('Search saved to your history', 'success');
+                }
             } else {
                 this.showError(data.error || 'Search failed');
             }
@@ -850,6 +1031,168 @@ function updateCitationFormat() {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new AcademicResearchApp();
 });
+
+// Global helper functions for onclick handlers
+function toggleHistory() {
+    if (window.app) {
+        window.app.toggleHistory();
+    }
+}
+
+function clearSearchHistory() {
+    if (window.app) {
+        window.app.clearSearchHistory();
+    }
+}
+
+// Mobile menu toggle
+// Note: This function is also defined in components/header.html
+// Keeping this version for backward compatibility with any direct calls
+function toggleMobileMenu() {
+    const nav = document.getElementById('mainNav');
+    
+    if (nav) {
+        nav.classList.toggle('mobile-open');
+        
+        // Update icon - use querySelector to find the icon in the mobile toggle button
+        const toggleBtn = document.querySelector('.mobile-toggle i');
+        if (toggleBtn) {
+            if (nav.classList.contains('mobile-open')) {
+                toggleBtn.className = 'fas fa-times';
+            } else {
+                toggleBtn.className = 'fas fa-bars';
+            }
+        }
+    }
+}
+
+// Scroll to search section
+function scrollToSearch() {
+    const searchSection = document.querySelector('.search-section');
+    if (searchSection) {
+        searchSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+        // Focus on search input
+        setTimeout(() => {
+            const searchInput = document.getElementById('searchQuery');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }, 500);
+    }
+    
+    // Close mobile menu if open
+    const nav = document.getElementById('mainNav');
+    if (nav && nav.classList.contains('mobile-open')) {
+        toggleMobileMenu();
+    }
+}
+
+// Show Quick Search modal
+function showQuickSearch() {
+    showModal('quickSearchModal');
+    document.getElementById('quickSearchInput').focus();
+    
+    // Close mobile menu if open
+    const nav = document.getElementById('mainNav');
+    if (nav && nav.classList.contains('mobile-open')) {
+        toggleMobileMenu();
+    }
+}
+
+// Show Deep Analysis modal
+function showDeepAnalysis() {
+    showModal('deepAnalysisModal');
+    document.getElementById('deepAnalysisInput').focus();
+    
+    // Close mobile menu if open
+    const nav = document.getElementById('mainNav');
+    if (nav && nav.classList.contains('mobile-open')) {
+        toggleMobileMenu();
+    }
+}
+
+// Perform Quick Search
+async function performQuickSearch(event) {
+    event.preventDefault();
+    
+    const input = document.getElementById('quickSearchInput');
+    const resultsDiv = document.getElementById('quickSearchResults');
+    const contentDiv = document.getElementById('quickSearchContent');
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    
+    const query = input.value.trim();
+    if (!query) return;
+    
+    // Show loading
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+    resultsDiv.style.display = 'block';
+    contentDiv.innerHTML = '<div class="loading">Getting answer...</div>';
+    
+    try {
+        const response = await fetch('/api/quick-search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            contentDiv.innerHTML = app.formatAnalysis(data.answer);
+        } else {
+            contentDiv.innerHTML = `<p class="error">${data.error || 'Search failed'}</p>`;
+        }
+    } catch (error) {
+        console.error('Quick search error:', error);
+        contentDiv.innerHTML = '<p class="error">Network error occurred</p>';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-search"></i> Search';
+    }
+}
+
+// Perform Deep Analysis
+async function performDeepAnalysis(event) {
+    event.preventDefault();
+    
+    const input = document.getElementById('deepAnalysisInput');
+    const resultsDiv = document.getElementById('deepAnalysisResults');
+    const contentDiv = document.getElementById('deepAnalysisContent');
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    
+    const query = input.value.trim();
+    if (!query) return;
+    
+    // Show loading
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+    resultsDiv.style.display = 'block';
+    contentDiv.innerHTML = '<div class="loading">Performing deep analysis... This may take a moment.</div>';
+    
+    try {
+        const response = await fetch('/api/deep-analysis', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query})
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            contentDiv.innerHTML = app.formatAnalysis(data.analysis);
+        } else {
+            contentDiv.innerHTML = `<p class="error">${data.error || 'Analysis failed'}</p>`;
+        }
+    } catch (error) {
+        console.error('Deep analysis error:', error);
+        contentDiv.innerHTML = '<p class="error">Network error occurred</p>';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-microscope"></i> Analyze';
+    }
+}
 
 // =============================================================================
 // DRAFT GENERATOR FUNCTIONS
