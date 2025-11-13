@@ -1,3 +1,4 @@
+import os
 import pyotp
 import qrcode
 import io
@@ -9,7 +10,13 @@ from typing import Tuple, List, Dict, Optional
 from datetime import datetime, timedelta
 import logging
 
-from config import TOTP_ISSUER_NAME, SECRET_KEY
+# Import config with fallback to environment variables
+try:
+    from config import TOTP_ISSUER_NAME, SECRET_KEY
+except ImportError:
+    # Fallback to environment variables for deployment
+    TOTP_ISSUER_NAME = os.getenv('TOTP_ISSUER_NAME', 'Sentino AI')
+    SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-here')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

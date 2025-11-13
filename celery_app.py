@@ -4,7 +4,14 @@ import logging
 from datetime import datetime
 from bson import ObjectId
 
-from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
+# Import config with fallback to environment variables
+try:
+    from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
+except ImportError:
+    # Fallback to environment variables for deployment
+    CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+    CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
 from utils.document_processor import document_processor
 
 # Configure logging

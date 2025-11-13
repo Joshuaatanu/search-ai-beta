@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 from typing import Dict, List, Optional
@@ -6,7 +7,13 @@ import logging
 import time
 import hashlib
 
-from config import IEEE_XPLORE_API_KEY, IEEE_XPLORE_API_URL
+# Import config with fallback to environment variables
+try:
+    from config import IEEE_XPLORE_API_KEY, IEEE_XPLORE_API_URL
+except ImportError:
+    # Fallback to environment variables for deployment
+    IEEE_XPLORE_API_KEY = os.getenv('IEEE_API_KEY', '')
+    IEEE_XPLORE_API_URL = 'https://ieeexploreapi.ieee.org/api/v1/search/articles'
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

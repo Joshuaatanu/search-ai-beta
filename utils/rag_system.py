@@ -1,10 +1,17 @@
+import os
 import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import json
 
 from utils.document_processor import document_processor
-from config import GEMINI_API_KEY
+
+# Import config with fallback to environment variables
+try:
+    from config import GEMINI_API_KEY
+except ImportError:
+    # Fallback to environment variables for deployment
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

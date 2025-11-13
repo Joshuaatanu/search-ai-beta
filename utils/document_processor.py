@@ -12,9 +12,18 @@ import tiktoken
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-from config import (
-    MAX_FILE_SIZE, ALLOWED_EXTENSIONS, CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MODEL
-)
+# Import config with fallback to environment variables
+try:
+    from config import (
+        MAX_FILE_SIZE, ALLOWED_EXTENSIONS, CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MODEL
+    )
+except ImportError:
+    # Fallback to environment variables for deployment
+    MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', 10 * 1024 * 1024))  # 10MB default
+    ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS', 'pdf,docx,txt').split(',')
+    CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', 500))
+    CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', 50))
+    EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
